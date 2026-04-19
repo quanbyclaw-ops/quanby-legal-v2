@@ -41,7 +41,7 @@
 
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Quanby Legal — Notarization Session</title>
+<title>Quanby Legal - Notarization Session</title>
 <link rel="stylesheet" href="https://cdn.hugeicons.com/font/hgi-stroke-rounded.css" />
 <link rel="icon" href="/favicon.ico"/>
 <style>
@@ -150,13 +150,13 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,san
   border-color:rgba(255,255,255,.15);
   color:#e6edf3;
 }
-/* Active state — subtle highlight, no heavy colour */
+/* Active state - subtle highlight, no heavy colour */
 .ctrl-btn.active{
   background:rgba(255,255,255,.1);
   border-color:rgba(255,255,255,.2);
   color:#e6edf3;
 }
-/* Muted/off state — red only for mic/cam when disabled (danger signal) */
+/* Muted/off state - red only for mic/cam when disabled (danger signal) */
 .ctrl-btn.muted{
   background:rgba(239,68,68,.15);
   border-color:rgba(239,68,68,.3);
@@ -168,7 +168,7 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,san
   border-color:rgba(239,68,68,.3);
   color:#f87171;
 }
-/* Remove special coloured variants — all buttons same neutral base */
+/* Remove special coloured variants - all buttons same neutral base */
 .ctrl-btn-sign, .ctrl-btn-upload { /* inherit base */ }
 .ctrl-btn-sign:hover, .ctrl-btn-upload:hover { /* inherit base hover */ }
 
@@ -385,7 +385,7 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,san
 <!-- LOADING -->
 <div class="loading-screen" id="loading-screen">
   <div class="spinner"></div>
-  <div class="loading-text" id="loading-text">Initializing session…</div>
+  <div class="loading-text" id="loading-text">Initializing session...</div>
 </div>
 
 <!-- PRE-JOIN -->
@@ -420,7 +420,7 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,san
           <div class="file-drop-zone" id="file-drop-zone" onclick="document.getElementById('doc-file-input').click()">
             <div class="file-drop-icon"><i class="hgi-stroke hgi-file-01" style="font-size:2.5rem;color:var(--muted);"></i></div>
             <div class="file-drop-text" id="file-drop-text">Click to select or drag &amp; drop a file</div>
-            <div class="file-drop-sub">PDF, DOC, DOCX — max 20MB</div>
+            <div class="file-drop-sub">PDF, DOC, DOCX - max 20MB</div>
             <input type="file" id="doc-file-input" accept=".pdf,.doc,.docx" style="display:none" onchange="handleFileSelect(this)"/>
           </div>
           <div class="form-error" id="err-file"></div>
@@ -428,14 +428,14 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,san
 
         <div class="form-group">
           <label class="form-label">Document Name *</label>
-          <input type="text" class="form-input" id="doc-name" placeholder="e.g. Deed of Sale, Affidavit of Loss…" />
+          <input type="text" class="form-input" id="doc-name" placeholder="e.g. Deed of Sale, Affidavit of Loss..." />
           <div class="form-error" id="err-doc-name"></div>
         </div>
 
         <div class="form-group">
           <label class="form-label">Notarization Type *</label>
           <select class="form-select" id="doc-notarization-type">
-            <option value="">— Select type —</option>
+            <option value="">- Select type -</option>
             <option value="ACKNOWLEDGMENT">Acknowledgment</option>
             <option value="JURAT">Jurat</option>
             <option value="AFFIRMATION">Affirmation</option>
@@ -447,12 +447,12 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,san
 
         <div class="form-group">
           <label class="form-label">Description / Purpose</label>
-          <textarea class="form-input" id="doc-description" rows="2" placeholder="Brief description of the document and its intended use…"></textarea>
+          <textarea class="form-input" id="doc-description" rows="2" placeholder="Brief description of the document and its intended use..."></textarea>
         </div>
 
         <div class="fees-box" id="fees-box" style="display:none">
           <div class="fees-title"><i class="hgi-stroke hgi-coins-01" style="font-size:.95rem;vertical-align:middle;margin-right:.3rem;color:var(--gold);"></i>Estimated Notarization Fee</div>
-          <div class="fees-amount" id="fees-amount">₱—</div>
+          <div class="fees-amount" id="fees-amount">₱-</div>
           <div class="fees-note">Based on SC fee schedule. Actual fee may vary.</div>
         </div>
 
@@ -533,7 +533,7 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,san
       <div class="main-video-avatar" id="main-avatar"><i class="hgi-stroke hgi-user-circle" style="font-size:4rem;color:var(--muted);"></i></div>
       <video id="main-video-el" style="display:none" autoplay playsinline></video>
       <div class="main-label" id="main-label" style="display:none">
-        <span id="main-name">–</span>
+        <span id="main-name">-</span>
         <span class="role-badge role-ENP" id="main-role-badge">ENP</span>
       </div>
     </div>
@@ -579,7 +579,7 @@ body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,san
     <div class="sidebar-content" id="tab-chat">
       <div class="chat-messages" id="chat-messages"></div>
       <div class="chat-input-row">
-        <input class="chat-input" id="chat-input" placeholder="Type a message…" onkeydown="if(event.key==='Enter')sendChat()"/>
+        <input class="chat-input" id="chat-input" placeholder="Type a message..." onkeydown="if(event.key==='Enter')sendChat()"/>
         <button class="chat-send" onclick="sendChat()">▶</button>
       </div>
     </div>
@@ -620,10 +620,10 @@ let _inviteLink = '';
 // ─── UPLOAD DOCUMENT ─────────────────────────────────────────────────────────
 
 const NOTARIZATION_FEES = {
-  'ACKNOWLEDGMENT': { fee: '₱100 – ₱300', desc: 'Confirms the identity of the signer and that they voluntarily signed the document.' },
-  'JURAT': { fee: '₱100 – ₱300', desc: 'The signer swears or affirms under oath that the contents of the document are true.' },
-  'AFFIRMATION': { fee: '₱100 – ₱300', desc: 'Similar to a jurat but without a religious oath — the signer affirms the truth of the contents.' },
-  'SIGNATURE_WITNESSING': { fee: '₱50 – ₱200', desc: 'The notary witnesses the signer physically signing the document.' },
+  'ACKNOWLEDGMENT': { fee: '₱100 - ₱300', desc: 'Confirms the identity of the signer and that they voluntarily signed the document.' },
+  'JURAT': { fee: '₱100 - ₱300', desc: 'The signer swears or affirms under oath that the contents of the document are true.' },
+  'AFFIRMATION': { fee: '₱100 - ₱300', desc: 'Similar to a jurat but without a religious oath - the signer affirms the truth of the contents.' },
+  'SIGNATURE_WITNESSING': { fee: '₱50 - ₱200', desc: 'The notary witnesses the signer physically signing the document.' },
 };
 
 let _selectedFile = null;
@@ -663,7 +663,7 @@ function handleFileSelect(input) {
   const file = input.files[0];
   if (!file) return;
   if (file.size > 20 * 1024 * 1024) {
-    document.getElementById('err-file').textContent = 'File too large — maximum 20MB.';
+    document.getElementById('err-file').textContent = 'File too large - maximum 20MB.';
     return;
   }
   _selectedFile = file;
@@ -690,7 +690,7 @@ function addDocumentToList(doc) {
     const _existing = list ? list.querySelector('[data-project-uuid="' + _existingUuid + '"]') : null;
     if (_existing) return; // already rendered
   } else {
-    // No UUID yet — check by doc name to avoid exact duplicates
+    // No UUID yet - check by doc name to avoid exact duplicates
     const _existingName = list ? Array.from(list.querySelectorAll('.doc-list-item')).find(function(el) {
       return el.querySelector('.doc-title') && el.querySelector('.doc-title').textContent === (doc.name || '');
     }) : null;
@@ -709,10 +709,10 @@ function addDocumentToList(doc) {
   item.dataset.projectUuid = projectUuid;
   item.style.cssText = 'background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:.85rem .9rem;margin-bottom:.6rem;box-shadow:0 2px 8px rgba(0,0,0,.2);';
 
-  // signBtn removed — sign-doc-btn handles signing for both ENP and client
-  const signBtn = doc.sign_link ? '' : '<div style="margin-top:.6rem;font-size:.72rem;color:var(--muted);font-style:italic;text-align:center;">⏳ Processing document…</div>';
+  // signBtn removed - sign-doc-btn handles signing for both ENP and client
+  const signBtn = doc.sign_link ? '' : '<div style="margin-top:.6rem;font-size:.72rem;color:var(--muted);font-style:italic;text-align:center;">⏳ Processing document...</div>';
 
-  // Add Signer button — only rendered for ENP (checked at click time via _isEnp flag)
+  // Add Signer button - only rendered for ENP (checked at click time via _isEnp flag)
   const addSignerBtn = projectUuid
     ? `<button onclick="openAddSignerModal('${escHtml(projectUuid)}', this.closest('.doc-list-item'))" style="display:flex;align-items:center;justify-content:center;gap:.35rem;width:100%;margin-top:.45rem;padding:.45rem .75rem;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:8px;color:#f59e0b;font-size:.75rem;font-weight:700;cursor:pointer;text-align:center;transition:background .2s;" onmouseover="this.style.background='rgba(245,158,11,.2)'" onmouseout="this.style.background='rgba(245,158,11,.1)'" id="add-signer-btn-${escHtml(projectUuid)}"><i class="hgi-stroke hgi-user-add-01" style="font-size:.8rem;vertical-align:middle;margin-right:.3rem;"></i>Add Signer</button>`
     : '';
@@ -720,17 +720,17 @@ function addDocumentToList(doc) {
   // Signers list container (populated as signers are added)
   const signersDiv = `<div class="signers-list" id="signers-${escHtml(projectUuid)}" style="margin-top:.5rem;"></div>`;
 
-  // Plot Signature Fields button — ENP only, shown when project has a UUID
+  // Plot Signature Fields button - ENP only, shown when project has a UUID
   const plotSignBtn = projectUuid
     ? `<button onclick="openPlotSignature('${escHtml(projectUuid)}')" style="display:flex;align-items:center;justify-content:center;gap:.35rem;width:100%;margin-top:.45rem;padding:.45rem .75rem;background:rgba(167,139,250,.1);border:1px solid rgba(167,139,250,.3);border-radius:8px;color:#a78bfa;font-size:.75rem;font-weight:700;cursor:pointer;transition:background .2s;" onmouseover="this.style.background='rgba(167,139,250,.22)'" onmouseout="this.style.background='rgba(167,139,250,.1)'" id="plot-sign-btn-${escHtml(projectUuid)}"><i class="hgi-stroke hgi-pen-tool-01" style="font-size:.82rem;"></i> Plot Signature Fields</button>`
     : '';
 
-  // Refresh Status button — polls DoconChain for signing completion
+  // Refresh Status button - polls DoconChain for signing completion
   const refreshStatusBtn = projectUuid
     ? `<button onclick="refreshSignerStatus('${escHtml(projectUuid)}', '${escHtml(APT_ID || '')}')" style="display:none;align-items:center;justify-content:center;gap:.3rem;width:100%;margin-top:.3rem;padding:.35rem .75rem;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);border-radius:8px;color:#8892a4;font-size:.72rem;cursor:pointer;" id="refresh-status-btn-${escHtml(projectUuid)}"><i class="hgi-stroke hgi-refresh" style="font-size:.78rem;"></i> Refresh Signing Status</button>`
     : '';
 
-  // Sign Document button — shown after plotting is complete
+  // Sign Document button - shown after plotting is complete
   const signDocBtn = projectUuid
     ? `<button onclick="openSignDocument('${escHtml(projectUuid)}', '${escHtml(APT_ID || '')}')" style="display:none;align-items:center;justify-content:center;gap:.35rem;width:100%;margin-top:.45rem;padding:.55rem .75rem;background:linear-gradient(135deg,rgba(16,185,129,.2),rgba(5,150,105,.15));border:1px solid rgba(16,185,129,.5);border-radius:8px;color:#34d399;font-size:.75rem;font-weight:700;cursor:pointer;transition:background .2s;" onmouseover="this.style.background='linear-gradient(135deg,rgba(16,185,129,.32),rgba(5,150,105,.25))'" onmouseout="this.style.background='linear-gradient(135deg,rgba(16,185,129,.2),rgba(5,150,105,.15))'" id="sign-doc-btn-${escHtml(projectUuid)}"><i class="hgi-stroke hgi-signature" style="font-size:.82rem;"></i> Sign Document</button>`
     : '';
@@ -749,7 +749,7 @@ function addDocumentToList(doc) {
               style="font-size:.8rem;font-weight:800;color:var(--gold);white-space:nowrap;cursor:${window._isEnp?'pointer':'default'};"
               title="${window._isEnp?'Click to edit fee':''}"
               onclick="startFeeEdit('${escHtml(projectUuid)}', this)">
-              ${escHtml(doc.fee || '₱—')}
+              ${escHtml(doc.fee || '₱-')}
             </div>
             <input id="fee-input-${escHtml(projectUuid)}"
               type="text" placeholder="e.g. ₱200"
@@ -778,7 +778,7 @@ function addDocumentToList(doc) {
     const plotBtn = item.querySelector('button[id^="plot-sign-btn-"]');
     if (addBtn)  addBtn.style.display  = 'none';
     if (plotBtn) plotBtn.style.display = 'none';
-    // sign-doc-btn stays hidden by default for everyone — revealed by _refreshSignerBadges
+    // sign-doc-btn stays hidden by default for everyone - revealed by _refreshSignerBadges
   }
 
   // Update tab badge
@@ -789,9 +789,9 @@ function addDocumentToList(doc) {
 
 /* ══════════════════════════════════════════════════════════════════════
    ADD SIGNER WIZARD  (_SW)
-   Step 1 – Select Signers:   checkbox list, ENP optional, ≥1 non-ENP required
-   Step 2 – Assign Roles:     non-ENP only, Principal | Witness per row
-   Step 3 – Set Signing Order: everyone listed, ENP locked-last, ▲▼ if currentUser=ENP
+   Step 1 - Select Signers:   checkbox list, ENP optional, ≥1 non-ENP required
+   Step 2 - Assign Roles:     non-ENP only, Principal | Witness per row
+   Step 3 - Set Signing Order: everyone listed, ENP locked-last, ▲▼ if currentUser=ENP
    openAddSignerModal() / closeSignerModal() kept as public entry-points
    ══════════════════════════════════════════════════════════════════════ */
 let _signerTargetUuid = null;
@@ -805,7 +805,7 @@ const _SW = (() => {
   let step     = 1;
   // { identity, name, email, isEnp, role:'Principal'|'Witness' }
   let selected = [];
-  // ordered list built in step 3 — non-ENP (reorderable) + ENP at end
+  // ordered list built in step 3 - non-ENP (reorderable) + ENP at end
   let ordered  = [];
 
   // ── DOM shortcuts ────────────────────────────────────────────────
@@ -818,9 +818,9 @@ const _SW = (() => {
 
   // ── progress bar ─────────────────────────────────────────────────
   const STEP_META = {
-    1: { title: 'Select Signers',    sub: 'Step 1 of 3 — Choose who must sign this document' },
-    2: { title: 'Assign Roles',      sub: 'Step 2 of 3 — Set role for each signer (ENP signs as Notary)' },
-    3: { title: 'Set Signing Order', sub: 'Step 3 of 3 — Reorder signers; ENP always signs last' },
+    1: { title: 'Select Signers',    sub: 'Step 1 of 3 - Choose who must sign this document' },
+    2: { title: 'Assign Roles',      sub: 'Step 2 of 3 - Set role for each signer (ENP signs as Notary)' },
+    3: { title: 'Set Signing Order', sub: 'Step 3 of 3 - Reorder signers; ENP always signs last' },
   };
 
   function updateProgress(n) {
@@ -913,7 +913,7 @@ const _SW = (() => {
             ${esc(r.name)}
             ${r.isEnp ? '<span style="font-size:.65rem;background:#6366f1;color:#fff;border-radius:4px;padding:.1rem .35rem;margin-left:.3rem;vertical-align:middle;">ENP</span>' : ''}
           </div>
-          <div style="font-size:.72rem;color:var(--muted);">${esc(r.email || '—')}</div>
+          <div style="font-size:.72rem;color:var(--muted);">${esc(r.email || '-')}</div>
         </div>
         ${alreadyAdded ? '<span style="font-size:.65rem;color:var(--muted);background:rgba(255,255,255,.08);border-radius:4px;padding:.1rem .35rem;">Already added</span>' : ''}`;
       list.appendChild(row);
@@ -989,7 +989,7 @@ const _SW = (() => {
         ...selected.filter(s => s.isEnp),
       ];
     } else {
-      // Preserve prior reordering — just ensure ENP stays at end
+      // Preserve prior reordering - just ensure ENP stays at end
       const nonEnp = ordered.filter(s => !s.isEnp);
       const enp    = selected.filter(s => s.isEnp);
       ordered = [...nonEnp, ...enp];
@@ -1010,7 +1010,7 @@ const _SW = (() => {
 
     ordered.forEach((s, idx) => {
       const isEnp    = s.isEnp;
-      const dispNum  = isEnp ? '—' : String(idx + 1);
+      const dispNum  = isEnp ? '-' : String(idx + 1);
       const roleLbl  = isEnp ? 'Notary'
                      : s.role === 'Witness' ? 'Witness' : 'Principal';
       const roleClr  = isEnp ? '#818cf8'
@@ -1103,7 +1103,7 @@ const _SW = (() => {
     buildOrdered();
     const btn = $('sw-btn-save');
     btn.disabled = true;
-    btn.textContent = '⏳ Saving…';
+    btn.textContent = '⏳ Saving...';
 
     let baseOrder = (() => {
       const container = document.getElementById('signers-' + _signerTargetUuid);
@@ -1171,7 +1171,7 @@ const _SW = (() => {
     if (addBtn) addBtn.style.display = 'none';
 
     closeSignerModal();
-    showToast(`✓ ${savedCount} ${savedCount === 1 ? 'signatory' : 'signatories'} saved successfully.`, 'success');
+    qlToast(`✓ ${savedCount} ${savedCount === 1 ? 'signatory' : 'signatories'} saved successfully.`, 'success');
     setTimeout(_syncSessionState, 1500);
   }
 
@@ -1219,7 +1219,7 @@ function openAddSignerModal(projectUuid, itemEl) {
     .find(d => (d.project_uuid||d.doconchain_project_uuid) === projectUuid);
   if (_docState && _docState.dc_workflow_state &&
       ['plotting','signing','completed'].includes(_docState.dc_workflow_state)) {
-    showToast('Roster is locked — signing has started on this document.', 'error');
+    qlToast('Roster is locked - signing has started on this document.', 'error');
     return;
   }
   _signerTargetUuid = projectUuid;
@@ -1248,10 +1248,10 @@ function closeSignerModal() {
   _signerTargetItem = null;
 }
 
-// ── Legacy stub — no longer used but kept so old references don't break
+// ── Legacy stub - no longer used but kept so old references don't break
 function onSignerParticipantSelect() {}
 
-// submitAddSigner — replaced by _SW.save() in the 3-step wizard
+// submitAddSigner - replaced by _SW.save() in the 3-step wizard
 function submitAddSigner() { _SW.save(); }
 
 function renderSignerChip(projectUuid, signer) {
@@ -1405,7 +1405,7 @@ function _refreshSignerBadges(projectUuid) {
     }
   }
 
-  // All signed — hide button, show completed state
+  // All signed - hide button, show completed state
   if (allSigned && chips.length > 0) {
     signBtn.style.display = 'none';
     return;
@@ -1447,7 +1447,7 @@ function _refreshSignerBadges(projectUuid) {
 
   if (isMyTurn) {
     signBtn.innerHTML = '<i class="hgi-stroke hgi-signature" style="font-size:1rem;"></i> Sign Document';
-    signBtn.title = 'Your turn — click to sign';
+    signBtn.title = 'Your turn - click to sign';
   } else {
     const _blockedName = blockedBy !== null
       ? (function() {
@@ -1527,7 +1527,7 @@ async function submitDocument() {
 
   const btn = document.getElementById('btn-upload-submit');
   btn.disabled = true;
-  btn.textContent = '⏳ Uploading to DoconChain…';
+  btn.textContent = '⏳ Uploading to DoconChain...';
 
   const desc = document.getElementById('doc-description').value.trim();
   const feeInfo = NOTARIZATION_FEES[type] || {};
@@ -1551,13 +1551,13 @@ async function submitDocument() {
     // Add to sidebar docs list with the real DoconChain sign link
     addDocumentToList({
       name, type, desc,
-      fee: feeInfo.fee || '—',
+      fee: feeInfo.fee || '-',
       sign_link: data.sign_link,
       project_uuid: data.project_uuid,
     });
 
     // NOTE: sign_link returned here is the DoconChain plot URL (not a signer link)
-    // Do NOT mark data-sign-link here — that only gets set after ENP plots the fields
+    // Do NOT mark data-sign-link here - that only gets set after ENP plots the fields
 
     // Notify all participants via structured LiveKit data message
     if (_room && _room.state === 'connected') {
@@ -1568,19 +1568,19 @@ async function submitDocument() {
         desc: desc,
         sign_link: data.sign_link,
         project_uuid: data.project_uuid,
-        fee: feeInfo.fee || '—',
+        fee: feeInfo.fee || '-',
       });
       _room.localParticipant.publishData(new TextEncoder().encode(docMsg), { reliable: true });
     }
     // Also send a plain chat notification
-    const msg = `📄 Document uploaded: "${name}" (${type}) — Ready to sign on DoconChain`;
+    const msg = `📄 Document uploaded: "${name}" (${type}) - Ready to sign on DoconChain`;
     if (typeof sendDataMessage === 'function') sendDataMessage(msg);
 
     // Show success
     document.getElementById('upload-form').style.display = 'none';
     btn.style.display = 'none';
     document.getElementById('upload-success').style.display = '';
-    document.getElementById('upload-success-name').textContent = name + ' — Sign link ready';
+    document.getElementById('upload-success-name').textContent = name + ' - Sign link ready';
     // Reset button immediately so it's clean when modal reopens
     btn.disabled = false;
     btn.innerHTML = '<i class="hgi-stroke hgi-checkmark-circle-01" style="font-size:.85rem;vertical-align:middle;margin-right:.3rem;"></i>Uploaded!';
@@ -1595,7 +1595,7 @@ async function submitDocument() {
 
 // ─── INIT ─────────────────────────────────────────────────────────────────────
 async function init() {
-  setLoading('Checking authentication…');
+  setLoading('Checking authentication...');
 
   // Guest flow (witness/observer via invite link)
   if (GUEST_TOKEN) {
@@ -1620,7 +1620,7 @@ async function init() {
   } catch(e) { location.href = '/'; return; }
 
   // Load session info
-  setLoading('Loading session info…');
+  setLoading('Loading session info...');
   try {
     const r = await fetch(`/api/sessions/${APT_ID}`, { credentials: 'include' });
     if (!r.ok) { showError('Session not found or you are not authorized.'); return; }
@@ -1641,7 +1641,7 @@ async function init() {
 
   const isEnp = me.id === _sessionInfo.enp_id;
   if (FROM_LOBBY) {
-    // Came from lobby — skip session.html's own pre-join screen, join directly
+    // Came from lobby - skip session.html's own pre-join screen, join directly
     const userName = isEnp ? _sessionInfo.enp_name : _sessionInfo.client_name;
     const userRole = isEnp ? 'ENP' : 'Client';
     await joinSession(userName, userRole);
@@ -1651,14 +1651,14 @@ async function init() {
 }
 
 async function startPrejoin(me, userName, userRole) {
-  setLoading('Preparing camera preview…');
+  setLoading('Preparing camera preview...');
   try {
     _previewStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
     document.getElementById('preview-video').srcObject = _previewStream;
     document.getElementById('preview-video').style.display = '';
     document.getElementById('preview-placeholder').style.display = 'none';
   } catch(e) {
-    // No camera — that's ok
+    // No camera - that's ok
   }
   hideLoading();
   document.getElementById('prejoin').style.display = 'flex';
@@ -1691,13 +1691,13 @@ async function startPrejoin(me, userName, userRole) {
 
 async function joinSession(me, userRole) {
   const btn = document.getElementById('btn-join-session');
-  btn.disabled = true; btn.textContent = 'Connecting…';
+  btn.disabled = true; btn.textContent = 'Connecting...';
 
   // Stop preview stream
   if (_previewStream) { _previewStream.getTracks().forEach(t => t.stop()); _previewStream = null; }
 
   document.getElementById('prejoin').style.display = 'none';
-  setLoading('Connecting to session…');
+  setLoading('Connecting to session...');
 
   let token, userName, role;
   try {
@@ -1722,7 +1722,7 @@ async function joinSession(me, userRole) {
     }
   } catch(e) { showError('Network error. Could not join session.'); return; }
 
-  setLoading('Joining LiveKit room…');
+  setLoading('Joining LiveKit room...');
   try {
     _room = new LivekitClient.Room({
       adaptiveStream: true,
@@ -1762,6 +1762,18 @@ async function joinSession(me, userRole) {
 
 let _dcToken = ''; // token kept in memory only, not displayed
 
+async function loadDcToken() {
+  try {
+    const r = await fetch('/api/sessions/dc-token', { credentials: 'include' });
+    if (r.ok) {
+      const d = await r.json();
+      _dcToken = d.token || '';
+    }
+  } catch(e) {
+    console.warn('[QL] loadDcToken failed:', e.message);
+  }
+}
+
 function postJoinSetup(userName, role, userRole) {
   // Show ENP-only controls
   const isEnp = (role === 'ENP');
@@ -1772,7 +1784,7 @@ function postJoinSetup(userName, role, userRole) {
   document.getElementById('ctrl-add').style.display = isEnp ? '' : 'none';
   document.getElementById('sidebar-invite-btn').style.display = isEnp ? '' : 'none';
 
-  // Start timer — sync to session_created_at so all participants/refreshes show the same elapsed time
+  // Start timer - sync to session_created_at so all participants/refreshes show the same elapsed time
   if (_sessionInfo && _sessionInfo.session_created_at) {
     _startTime = new Date(_sessionInfo.session_created_at).getTime();
   } else {
@@ -1781,7 +1793,7 @@ function postJoinSetup(userName, role, userRole) {
   _timerInt = setInterval(updateTimer, 1000);
   updateTimer(); // render immediately (no 1s delay on load)
 
-  // Background session state sync — keeps doc/signer state fresh without refresh
+  // Background session state sync - keeps doc/signer state fresh without refresh
   _startSessionSync();
 
   // Render self thumbnail
@@ -1800,8 +1812,8 @@ function postJoinSetup(userName, role, userRole) {
 function restoreSessionDocuments() {
   if (!_sessionInfo || !Array.isArray(_sessionInfo.session_documents)) return;
   const NOTARIZATION_FEES = {
-    'ACKNOWLEDGMENT': '₱100 – ₱300', 'JURAT': '₱100 – ₱300',
-    'AFFIRMATION': '₱100 – ₱300', 'SIGNATURE_WITNESSING': '₱50 – ₱200',
+    'ACKNOWLEDGMENT': '₱100 - ₱300', 'JURAT': '₱100 - ₱300',
+    'AFFIRMATION': '₱100 - ₱300', 'SIGNATURE_WITNESSING': '₱50 - ₱200',
   };
   _sessionInfo.session_documents.forEach(doc => {
     // Handle both 'name' (new) and 'doc_name' (legacy) field
@@ -1812,7 +1824,7 @@ function restoreSessionDocuments() {
       name:         docName,
       type:         doc.notarization_type || doc.type || '',
       desc:         doc.description || doc.desc || '',
-      fee:          NOTARIZATION_FEES[doc.notarization_type] || '—',
+      fee:          NOTARIZATION_FEES[doc.notarization_type] || '-',
       sign_link:    doc.sign_link || '',
       project_uuid: projUuid,
     });
@@ -1836,9 +1848,9 @@ function restoreSessionDocuments() {
         setTimeout(function() { refreshSignerStatus(projUuid, _aptIdRestore, true); }, 500);
       }
     }
-    // Show sign button if plotting done — also ensure ENP chip is present
+    // Show sign button if plotting done - also ensure ENP chip is present
     // Mark sign button eligible if plotting has started (backend sets plotting_started)
-    // plotting_done is set by the LiveKit broadcast — fallback to plotting_started for late joiners
+    // plotting_done is set by the LiveKit broadcast - fallback to plotting_started for late joiners
     if (projUuid && (doc.plotting_done || doc.plotting_started)) {
       (function(_pu) {
         setTimeout(function() {
@@ -1907,7 +1919,7 @@ function setupRoomEvents(room, localName, localRole) {
       addParticipantTile(participant);
     }
   });
-  // LocalTrackPublished — ensure self tile shows video when cam is enabled
+  // LocalTrackPublished - ensure self tile shows video when cam is enabled
   room.on(LivekitClient.RoomEvent.LocalTrackPublished, (publication) => {
     if (publication.track && publication.track.kind === LivekitClient.Track.Kind.Video) {
       const identity = _room.localParticipant.identity;
@@ -1927,7 +1939,7 @@ function setupRoomEvents(room, localName, localRole) {
       if (obj.type === 'chat') {
         appendChatMessage(obj.name, obj.text, false);
       } else if (obj.type === 'plotting_done') {
-        // ENP finished plotting — enable Sign Document button for this doc
+        // ENP finished plotting - enable Sign Document button for this doc
         var _pduuid = obj.project_uuid;
         var _sb = document.getElementById('sign-doc-btn-' + _pduuid);
         if (_sb) _sb.dataset.signLink = '1';
@@ -1935,7 +1947,7 @@ function setupRoomEvents(room, localName, localRole) {
         var _pdAptId = (typeof APT_ID !== 'undefined' && APT_ID) ? APT_ID : (_sessionInfo && _sessionInfo.apt_id) || '';
         if (_pdAptId && _pduuid) {
           _startSignerStatusPolling(_pduuid, _pdAptId);
-          // Immediate fetch — then retry refresh after status arrives
+          // Immediate fetch - then retry refresh after status arrives
           refreshSignerStatus(_pduuid, _pdAptId, true).then(function() {
             var _sb2 = document.getElementById('sign-doc-btn-' + _pduuid);
             if (_sb2) _sb2.dataset.signLink = '1';
@@ -1951,7 +1963,7 @@ function setupRoomEvents(room, localName, localRole) {
         }
         // Sync session state immediately to pull latest signers from backend
         _syncSessionState();
-        // Retry at 800ms, 2s, 4s — catches slow DC responses and late DOM renders
+        // Retry at 800ms, 2s, 4s - catches slow DC responses and late DOM renders
         [800, 2000, 4000].forEach(function(delay) {
           setTimeout(function() {
             var _sb3 = document.getElementById('sign-doc-btn-' + _pduuid);
@@ -1970,7 +1982,7 @@ function setupRoomEvents(room, localName, localRole) {
           _pb.onclick = null;
         }
       } else if (obj.type === 'doc_uploaded') {
-        // ENP uploaded a document — add it to client's sidebar in real time
+        // ENP uploaded a document - add it to client's sidebar in real time
         const _docListEl = document.getElementById('documents-list');
         const existingEl = (obj.project_uuid && _docListEl)
           ? _docListEl.querySelector('[data-project-uuid="' + obj.project_uuid + '"]')
@@ -1980,7 +1992,7 @@ function setupRoomEvents(room, localName, localRole) {
             name: obj.name,
             type: obj.doc_type,
             desc: obj.desc || '',
-            fee: obj.fee || '—',
+            fee: obj.fee || '-',
             sign_link: obj.sign_link,
             project_uuid: obj.project_uuid,
           });
@@ -1994,7 +2006,7 @@ function setupRoomEvents(room, localName, localRole) {
           switchSidebarTab('documents');
         }
       } else if (obj.type === 'session_ended') {
-        // ENP ended the session — show message then redirect
+        // ENP ended the session - show message then redirect
         if (!window._isEnp) {
           _hideRecordingBanner();
           clearInterval(_timerInt);
@@ -2037,7 +2049,7 @@ function setupRoomEvents(room, localName, localRole) {
       }
     } catch(e) {}
   });
-  // TrackMuted — participant turned off camera or muted mic
+  // TrackMuted - participant turned off camera or muted mic
   room.on(LivekitClient.RoomEvent.TrackMuted, (publication, participant) => {
     if (publication.kind === LivekitClient.Track.Kind.Video) {
       const vid = document.getElementById('thumb-vid-' + participant.identity);
@@ -2053,7 +2065,7 @@ function setupRoomEvents(room, localName, localRole) {
       }
     }
   });
-  // TrackUnmuted — participant turned camera back on
+  // TrackUnmuted - participant turned camera back on
   room.on(LivekitClient.RoomEvent.TrackUnmuted, (publication, participant) => {
     if (publication.kind === LivekitClient.Track.Kind.Video) {
       const vid = document.getElementById('thumb-vid-' + participant.identity);
@@ -2073,7 +2085,7 @@ function setupRoomEvents(room, localName, localRole) {
     clearInterval(_timerInt);
     const isEnp = _sessionInfo && localRole === 'ENP';
     if (!isEnp && !document.querySelector('[data-session-end-overlay]')) {
-      // Fallback: session_ended data message wasn't received — show simple overlay
+      // Fallback: session_ended data message wasn't received - show simple overlay
       var _fbOverlay = document.createElement('div');
       _fbOverlay.setAttribute('data-session-end-overlay', '1');
       _fbOverlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(8,11,24,.97);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem;font-family:Inter,sans-serif;text-align:center;padding:2rem;';
@@ -2340,7 +2352,7 @@ async function toggleRecording() {
 
 async function startRecording() {
   const btn = document.getElementById('ctrl-record');
-  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="hgi-stroke hgi-record" style="font-size:1.3rem;"></i><span>Starting…</span>'; }
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="hgi-stroke hgi-record" style="font-size:1.3rem;"></i><span>Starting...</span>'; }
   try {
     // Capture the current tab using getDisplayMedia (tab capture)
     // Fall back to getUserMedia (camera+mic only) if tab capture not supported
@@ -2416,7 +2428,7 @@ async function startRecording() {
 
 async function stopRecording() {
   const btn = document.getElementById('ctrl-record');
-  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="hgi-stroke hgi-record" style="font-size:1.3rem;"></i><span>Stopping…</span>'; }
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="hgi-stroke hgi-record" style="font-size:1.3rem;"></i><span>Stopping...</span>'; }
 
   if (_mediaRecorder && _mediaRecorder.state !== 'inactive') {
     _mediaRecorder.stop(); // triggers onstop → auto-download
@@ -2429,7 +2441,7 @@ async function stopRecording() {
   document.getElementById('rec-dot').style.display = 'none';
   document.getElementById('rec-label').style.display = 'none';
   _broadcastRecordingAlert(false);
-  _showRecordingToast('⏹️ Recording stopped — file downloading now.', '#f0b429');
+  _showRecordingToast('⏹️ Recording stopped - file downloading now.', '#f0b429');
 }
 
 
@@ -2437,7 +2449,7 @@ async function stopRecording() {
 
 async function downloadRecording(aptId) {
   const btn = document.getElementById('ctrl-download-recording');
-  if (btn) { btn.disabled = true; btn.querySelector('span').textContent = 'Fetching…'; }
+  if (btn) { btn.disabled = true; btn.querySelector('span').textContent = 'Fetching...'; }
   try {
     const res = await fetch(`/api/sessions/${aptId}/recording/download`, { credentials: 'include' });
     const data = await res.json();
@@ -2448,14 +2460,14 @@ async function downloadRecording(aptId) {
       a.download = data.filename || 'recording.mp4';
       a.target = '_blank';
       a.click();
-      showToast('Recording download started', 'success');
+      qlToast('Recording download started', 'success');
     } else if (data.status === 'EGRESS_STARTING' || data.status === 'EGRESS_ACTIVE') {
-      showToast('Recording is still in progress — stop it first', 'error');
+      qlToast('Recording is still in progress — stop it first', 'error');
     } else {
-      showToast('Recording not available yet — LiveKit may still be processing it', 'error');
+      qlToast('Recording not available yet — LiveKit may still be processing it', 'error');
     }
   } catch(e) {
-    showToast('❌ ' + e.message, 'error');
+    qlToast('❌ ' + e.message, 'error');
   } finally {
     if (btn) { btn.disabled = false; btn.querySelector('span').textContent = 'Download'; }
   }
@@ -2479,7 +2491,7 @@ function _applyMirror() {
   // Thumbnail video
   const thumbVid = document.getElementById('thumb-vid-' + localId);
   if (thumbVid) thumbVid.style.transform = transform;
-  // Main video — only mirror when showing local participant
+  // Main video - only mirror when showing local participant
   if (_mainParticipant === localId) {
     const mainVid = document.getElementById('main-video-el');
     if (mainVid) mainVid.style.transform = transform;
@@ -2539,9 +2551,9 @@ function populateSignPanel(isEnp) {
   if (!_sessionInfo) return;
   const meta = document.getElementById('sign-panel-meta');
   meta.innerHTML = `
-    <div class="sign-meta-item">📄 <strong>${_sessionInfo.notarization_type || '–'}</strong></div>
-    <div class="sign-meta-item">👤 Client: <strong>${_sessionInfo.client_name || '–'}</strong></div>
-    <div class="sign-meta-item">⚖️ ENP: <strong>${_sessionInfo.enp_name || '–'}</strong></div>
+    <div class="sign-meta-item">📄 <strong>${_sessionInfo.notarization_type || '-'}</strong></div>
+    <div class="sign-meta-item">👤 Client: <strong>${_sessionInfo.client_name || '-'}</strong></div>
+    <div class="sign-meta-item">⚖️ ENP: <strong>${_sessionInfo.enp_name || '-'}</strong></div>
   `;
   const acts = document.getElementById('sign-panel-actions');
   const link = _sessionInfo.doconchain_sign_link;
@@ -2582,7 +2594,7 @@ async function sendInvite() {
   if (!name || !email) { qlToast('Please enter name and email.', 'warn'); return; }
 
   const btn = document.getElementById('btn-send-invite');
-  btn.disabled = true; btn.textContent = 'Sending…';
+  btn.disabled = true; btn.textContent = 'Sending...';
 
   try {
     const r = await fetch('/api/sessions/invite', {
@@ -2698,9 +2710,9 @@ function initials(name) {
 if (!APT_ID) {
   showError('Missing appointment ID in URL. Please go back to your appointments.');
 } else if (!ROOM_NAME) {
-  // APT_ID present but no room — session not yet started by ENP
+  // APT_ID present but no room - session not yet started by ENP
   // Redirect to appointments so ENP can start it
-  document.getElementById('loading-text').textContent = 'Session not started yet…';
+  document.getElementById('loading-text').textContent = 'Session not started yet...';
   document.getElementById('loading-screen').innerHTML =
     '<div style="text-align:center;padding:2rem;">' +
     '<div style="font-size:2rem;margin-bottom:1rem">⏳</div>' +
@@ -2715,7 +2727,7 @@ if (!APT_ID) {
 
 <!-- ── Add Signer Modal ──────────────────────────────────────────────────── -->
 <!-- ══════════════════════════════════════════════════════════════════
-     ADD SIGNER WIZARD  — 3-step modal
+     ADD SIGNER WIZARD  - 3-step modal
      Step 1: Select Signers   (checkboxes, ENP optional, ≥1 non-ENP required)
      Step 2: Assign Roles     (non-ENP only, Principal / Witness dropdown)
      Step 3: Signing Order    (everyone, numbered, ENP locked-last, ▲▼ for ENP user)
@@ -2734,7 +2746,7 @@ if (!APT_ID) {
         <div>
           <div style="font-size:1rem;font-weight:700;color:var(--text)" id="sw-modal-title">Select Signers</div>
           <div style="font-size:.72rem;color:var(--muted);margin-top:.15rem" id="sw-modal-sub">
-            Step 1 of 3 — Choose who must sign this document
+            Step 1 of 3 - Choose who must sign this document
           </div>
         </div>
         <button onclick="closeSignerModal()"
@@ -2770,7 +2782,7 @@ if (!APT_ID) {
       <!-- ═══ STEP 1: SELECT SIGNERS ═══ -->
       <div id="sw-step1">
         <p style="font-size:.78rem;color:var(--muted);margin:0 0 .85rem;">
-          Select who must sign. The ENP may be included — but at least one
+          Select who must sign. The ENP may be included - but at least one
           <strong style="color:var(--text)">Principal or Witness</strong> is required.
         </p>
         <div id="sw-participant-list" style="border:1px solid rgba(255,255,255,.1);border-radius:10px;
@@ -2782,7 +2794,7 @@ if (!APT_ID) {
       <!-- ═══ STEP 2: ASSIGN ROLES ═══ -->
       <div id="sw-step2" style="display:none;">
         <p style="font-size:.78rem;color:var(--muted);margin:0 0 .85rem;">
-          Assign each signer a role. The <strong style="color:#818cf8">ENP signs as Notary</strong> — they are not listed here.
+          Assign each signer a role. The <strong style="color:#818cf8">ENP signs as Notary</strong> - they are not listed here.
         </p>
         <div id="sw-role-list"></div>
       </div>
@@ -2848,7 +2860,7 @@ if (!APT_ID) {
   <div id="plot-sign-loading" style="flex:1;display:flex;flex-direction:column;
     align-items:center;justify-content:center;gap:.75rem;color:#9ca3af;">
     <div style="font-size:2rem;">🔗</div>
-    <div style="font-size:.85rem;">Generating signature link…</div>
+    <div style="font-size:.85rem;">Generating signature link...</div>
     <div class="spinner" style="width:22px;height:22px;border:3px solid rgba(167,139,250,.2);
       border-top-color:#a78bfa;border-radius:50%;animation:spin .8s linear infinite;"></div>
   </div>
@@ -2881,7 +2893,7 @@ async function openPlotSignature(projectUuid) {
     _plotBtn.style.background = 'rgba(107,114,128,.15)';
     _plotBtn.style.borderColor = 'rgba(107,114,128,.35)';
     _plotBtn.style.color = '#9ca3af';
-    _plotBtn.innerHTML = '<div style="width:12px;height:12px;border:2px solid rgba(167,139,250,.3);border-top-color:#a78bfa;border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0;"></div> Getting link…';
+    _plotBtn.innerHTML = '<div style="width:12px;height:12px;border:2px solid rgba(167,139,250,.3);border-top-color:#a78bfa;border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0;"></div> Getting link...';
   }
 
   function _resetBtn(errMsg) {
@@ -2972,7 +2984,7 @@ async function openPlotSignature(projectUuid) {
 
     // Show signer guide toast before opening
     var clientEmail = (_sessionInfo && _sessionInfo.client_email) || '';
-    // Link obtained — update button to "Plotting..." state
+    // Link obtained - update button to "Plotting..." state
     if (_plotBtn) {
       _plotBtn.disabled = true;
       _plotBtn.style.opacity = '1';
@@ -2980,18 +2992,18 @@ async function openPlotSignature(projectUuid) {
       _plotBtn.style.background = 'rgba(107,114,128,.15)';
       _plotBtn.style.borderColor = 'rgba(107,114,128,.35)';
       _plotBtn.style.color = '#9ca3af';
-      _plotBtn.innerHTML = '<i class="hgi-stroke hgi-loading-03" style="font-size:.82rem;animation:spin .9s linear infinite;"></i> Plotting…';
+      _plotBtn.innerHTML = '<i class="hgi-stroke hgi-loading-03" style="font-size:.82rem;animation:spin .9s linear infinite;"></i> Plotting...';
       _plotBtn._origHTML = '<i class="hgi-stroke hgi-pen-tool-01" style="font-size:.82rem;"></i> Plot Signature Fields';
       _plotBtn._projectUuid = projectUuid;
     }
 
     // Open DoconChain plot interface
-    // NOTE: do NOT set _plottingDone here — the button locks green only after
+    // NOTE: do NOT set _plottingDone here - the button locks green only after
     // the plotting_done LiveKit broadcast confirms the ENP actually plotted fields.
     // Open the DoconChain plot interface
     openDcModal(link, 'Plot Signature Fields');
 
-    // Poll for popup close — handles BOTH programmatic closeDcModal()
+    // Poll for popup close - handles BOTH programmatic closeDcModal()
     // AND user closing with browser X button (which never fires closeDcModal).
     if (_plotAptId) {
       var _plotPopupPollId = null;
@@ -3008,10 +3020,10 @@ async function openPlotSignature(projectUuid) {
 
         var _pb = document.getElementById('plot-sign-btn-' + projectUuid);
         if (!window._plottingDone[projectUuid]) {
-          // Window closed without confirmed plotting — show dialog
+          // Window closed without confirmed plotting - show dialog
           qlConfirm(
             'Did you finish plotting?',
-            'Did you successfully place all signature fields in DoconChain before closing?<br><br><span style="font-size:.8rem;color:#8b949e;">If DoconChain showed “Session Ended”, click <strong style="color:#a78bfa">Cancel</strong> — the button resets so you can reopen and log back in.</span>',
+            'Did you successfully place all signature fields in DoconChain before closing?<br><br><span style="font-size:.8rem;color:#8b949e;">If DoconChain showed "Session Ended", click <strong style="color:#a78bfa">Cancel</strong> - the button resets so you can reopen and log back in.</span>',
             'Yes, done plotting'
           ).then(function(confirmed) {
             if (confirmed) {
@@ -3025,7 +3037,7 @@ async function openPlotSignature(projectUuid) {
               refreshSignerStatus(projectUuid, _plotAptId, true);
               setTimeout(_syncSessionState, 2000);
             } else {
-              // No — restore button to original purple enabled state
+              // No - restore button to original purple enabled state
               if (_pb) {
                 _pb.disabled = false;
                 _pb.style.opacity = '1';
@@ -3059,7 +3071,7 @@ async function openPlotSignature(projectUuid) {
       }
       window.closeDcModal = _plotCloseDcModalOverride;
 
-      // Poll _dcPopupRef.closed every 600ms — catches browser X button close
+      // Poll _dcPopupRef.closed every 600ms - catches browser X button close
       _plotPopupPollId = setInterval(function() {
         if (typeof _dcPopupRef !== 'undefined' && _dcPopupRef && _dcPopupRef.closed) {
           _handlePlotWindowClosed();
@@ -3077,7 +3089,7 @@ async function openPlotSignature(projectUuid) {
               _autoRefreshPlotLink(projectUuid);
             }
           }
-        } catch(e) { /* cross-origin — cannot inspect popup URL */ }
+        } catch(e) { /* cross-origin - cannot inspect popup URL */ }
       }, 600);
     }
 
@@ -3117,7 +3129,7 @@ async function openSignDocument(projectUuid, aptId) {
   // ENP opens all sign links; Client opens only their own sign link
   const btn = document.getElementById('sign-doc-btn-' + projectUuid);
   const origHTML = btn ? btn.innerHTML : '';
-  if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Generating links…'; }
+  if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Generating links...'; }
 
   try {
     // Silently refresh token first
@@ -3156,7 +3168,7 @@ async function openSignDocument(projectUuid, aptId) {
     }
     linksToOpen.forEach(function(s, i) {
       setTimeout(function() {
-        openDcModal(s.link, 'Sign Document — ' + (s.name || s.email || 'Signer'));
+        openDcModal(s.link, 'Sign Document - ' + (s.name || s.email || 'Signer'));
       }, i * 300);
     });
 
@@ -3164,12 +3176,12 @@ async function openSignDocument(projectUuid, aptId) {
     var toastEl = document.createElement('div');
     toastEl.style.cssText = 'position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%);z-index:9999;background:#13172a;border:1px solid rgba(16,185,129,0.5);border-radius:12px;padding:.85rem 1.25rem;box-shadow:0 8px 32px rgba(0,0,0,0.6);font-size:0.82rem;color:#e6edf3;text-align:center;min-width:280px;';
     toastEl.innerHTML = '<strong style="color:#34d399;">✅ Signing links opened!</strong><br>'
-      + '<span style="color:#8892a4;font-size:.75rem;">' + okLinks.length + ' link(s) opened — one per signer</span>';
+      + '<span style="color:#8892a4;font-size:.75rem;">' + okLinks.length + ' link(s) opened - one per signer</span>';
     document.body.appendChild(toastEl);
     setTimeout(function() { if (toastEl.parentNode) toastEl.remove(); }, 5000);
 
     if (btn) { btn.disabled = false; btn.innerHTML = '✅ Signing Sent'; btn.style.opacity = '.7'; btn.style.cursor = 'default'; btn.onclick = null; }
-    // Auto-poll status after sending — pick up signing completions quickly
+    // Auto-poll status after sending - pick up signing completions quickly
     if (aptId) {
       _startSignerStatusPolling(projectUuid, aptId);
       setTimeout(function() { refreshSignerStatus(projectUuid, aptId, true); }, 5000);
@@ -3190,9 +3202,9 @@ function _broadcastRecordingAlert(started) {
   }
 
   // Broadcast to other participants via LiveKit data channel
-  // _room is a module-level let — do NOT use window._room
+  // _room is a module-level let - do NOT use window._room
   if (!_room || _room.state !== 'connected') {
-    console.warn('[Record] room not connected — skipping broadcast');
+    console.warn('[Record] room not connected - skipping broadcast');
     return;
   }
   var localName = 'A participant';
@@ -3252,7 +3264,7 @@ function _hideRecordingBanner() {
 
 async function refreshSignerStatus(projectUuid, aptId, silent) {
   const btn = document.getElementById('refresh-status-btn-' + projectUuid);
-  if (!silent && btn) { btn.disabled = true; btn.innerHTML = '🔄 Checking…'; }
+  if (!silent && btn) { btn.disabled = true; btn.innerHTML = '🔄 Checking...'; }
 
   try {
     try { await fetch('/api/auth/refresh', { method: 'POST', credentials: 'include' }); } catch(e) {}
@@ -3337,7 +3349,7 @@ async function _syncSessionState() {
           name: doc.doc_name || doc.name || 'Document',
           type: doc.notarization_type || doc.type || '',
           desc: doc.description || doc.desc || '',
-          fee: doc.fee || '—',
+          fee: doc.fee || '-',
           sign_link: doc.sign_link || '',
           project_uuid: uuid,
         });
@@ -3390,7 +3402,7 @@ async function _syncSessionState() {
       }
     }
   } catch(e) {
-    // Sync is best-effort — silent fail
+    // Sync is best-effort - silent fail
   }
 }
 
@@ -3447,7 +3459,7 @@ function showPlotSignatureGuide(enpName, enpEmail, clientName, clientEmail, proj
     + '<p style="margin:0 0 .4rem;font-size:.75rem;color:#c9d1d9;font-weight:600;">Add these signers in EDIT LIST (in order):</p>'
     + (function() {
         var rows = '';
-        // Show ENP first (creator, already in DC — just for reference)
+        // Show ENP first (creator, already in DC - just for reference)
         rows += sRow(enpName, enpEmail, '#a78bfa', 'ENP / Notary');
         // Show all locally-stored signers from the document roster
         var _localSigners = [];
@@ -3533,7 +3545,7 @@ async function saveFeeEdit(projectUuid) {
     if (!r.ok) {
       const err = await r.json().catch(() => ({}));
       console.warn('Fee save failed:', err.detail || r.status);
-      // Revert on error — show input again
+      // Revert on error - show input again
       input.style.display = 'block';
       display.style.display = 'none';
       input.focus();
@@ -3637,12 +3649,12 @@ function qlToast(msg, type, durationMs) {
   var stack = document.getElementById('ql-toast-stack');
   if (!stack) return;
   var colors = { error:'#f85149', success:'#3fb950', warn:'#f0b429', info:'#58a6ff' };
-  var icons  = { error:'<i class="hgi-stroke hgi-cancel-01" style="color:#f85149"></i>', success:'✅', warn:'<i class="hgi-stroke hgi-alert-02" style="color:#f0b429"></i>', info:'ℹ️' };
+  var icons  = { error:'<i class="hgi-stroke hgi-cancel-01" style="color:#f85149"></i>', success:'✅', warn:'<i class="hgi-stroke hgi-alert-02" style="color:#f0b429"></i>', info:'i️' };
   var t = type || 'info';
   var toast = document.createElement('div');
   toast.className = 'ql-toast';
   toast.style.borderColor = 'rgba(' + (t==='error'?'248,81,73':t==='success'?'63,185,80':t==='warn'?'240,180,41':'88,166,255') + ',.3)';
-  toast.innerHTML = '<span style="font-size:1rem;flex-shrink:0;">' + (icons[t]||'ℹ️') + '</span><span style="flex:1;">' + msg + '</span>';
+  toast.innerHTML = '<span style="font-size:1rem;flex-shrink:0;">' + (icons[t]||'i️') + '</span><span style="flex:1;">' + msg + '</span>';
   var close = document.createElement('button');
   close.style.cssText = 'background:none;border:none;color:#8b949e;cursor:pointer;font-size:.9rem;padding:0;margin-left:.25rem;flex-shrink:0;';
   close.textContent = '✕';
@@ -3687,7 +3699,7 @@ function openDcModal(url, title) {
     _dcPopupRef = window.open(url, 'dc_popup_window', features);
     if (_dcPopupRef) _dcPopupRef.focus();
     else {
-      // Popup blocked fallback — open as tab
+      // Popup blocked fallback - open as tab
       window.open(url, '_blank');
     }
   }
