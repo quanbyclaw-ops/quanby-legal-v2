@@ -3537,44 +3537,18 @@ async def get_plot_link(
                     _db.save_apt(_apt)
                     break
 
-        # Resolve DC short link by capturing the 302 Location header (NOT following through).
-        # The 302 Location contains the fresh token+api_token for auto-login.
-        # Following all the way to the app gives an "Oops" page (no browser session).
-        resolved_link = link
-        if "link.doconchain.com" in link or "doconchain.com" in link:
-            import requests as _rq_redirect
-            try:
-                # Use requests with allow_redirects=False to capture 302 Location
-                # which contains the api_token for auto-login
-                _r3 = _rq_redirect.get(
-                    link,
-                    headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"},
-                    allow_redirects=False,
-                    timeout=10,
-                )
-                if _r3.status_code in (301, 302, 303, 307, 308):
-                    _loc = _r3.headers.get("Location", "")
-                    if _loc and _loc.startswith("http"):
-                        resolved_link = _loc
-                        _has_token = "api_token=" in resolved_link
-                        print(f"[PlotLink] short link resolved via {_r3.status_code} redirect (has api_token: {_has_token})", flush=True)
-                    else:
-                        resolved_link = link
-                        print(f"[PlotLink] short link: {_r3.status_code} but no Location, using original", flush=True)
-                else:
-                    resolved_link = link
-                    print(f"[PlotLink] short link returned {_r3.status_code} (no redirect), using original", flush=True)
-            except Exception as _re:
-                resolved_link = link
-                print(f"[PlotLink] short link resolve failed: {_re}, using original", flush=True)
-
+        # Use the DC link directly — POST /api/v2/projects/{uuid}/link?user_type=ENTERPRISE_API
+        # returns the correct ENP plot link with ?user_type=ENTERPRISE_API format.
+        # DO NOT follow redirects — they return the guest signer format (token=...&api_token=...)
+        # which is wrong for the ENP plot interface.
         try:
             from urllib.parse import urlparse
-            _base = urlparse(resolved_link).netloc + urlparse(resolved_link).path
+            _base = urlparse(link).netloc + urlparse(link).path
         except Exception:
-            _base = resolved_link[:60]
-        print(f"[PlotLink] link ready: {_base}", flush=True)
-        return {"link": resolved_link, "project_uuid": project_uuid}
+            _base = link[:60]
+        print(f"[PlotLink] ✅ link ready (direct): {_base}", flush=True)
+        print(f"[PlotLink]    full link: {link}", flush=True)
+        return {"link": link, "project_uuid": project_uuid}
 
     except HTTPException:
         raise
