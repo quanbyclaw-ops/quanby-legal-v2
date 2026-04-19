@@ -3537,18 +3537,85 @@ async def get_plot_link(
                     _db.save_apt(_apt)
                     break
 
-        # Use the DC link directly — POST /api/v2/projects/{uuid}/link?user_type=ENTERPRISE_API
-        # returns the correct ENP plot link with ?user_type=ENTERPRISE_API format.
-        # DO NOT follow redirects — they return the guest signer format (token=...&api_token=...)
-        # which is wrong for the ENP plot interface.
-        try:
-            from urllib.parse import urlparse
-            _base = urlparse(link).netloc + urlparse(link).path
-        except Exception:
-            _base = link[:60]
-        print(f"[PlotLink] ✅ link ready (direct): {_base}", flush=True)
-        print(f"[PlotLink]    full link: {link}", flush=True)
-        return {"link": link, "project_uuid": project_uuid}
+        # DC returns a short link (https://link.doconchain.com/xxx).
+        # We must resolve it server-side to get the final authenticated URL
+        # (contains api_token for auto-login). Relative redirects need the base host prepended.
+        import requests as _rq_resolve
+        from urllib.parse import urljoin, urlparse as _up
+
+        _DC_APP_ORIGIN = "https://stg-app.doconchain.com"
+        _ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0"
+        _current = link
+        _resolved = link  # fallback
+
+        print(f"[PlotLink] Resolving short link: {link}", flush=True)
+        for _hop in range(5):
+            try:
+                _hr = _rq_resolve.get(
+                    _current,
+                    allow_redirects=False,
+                    timeout=10,
+                    headers={"User-Agent": _ua},
+                )
+                _loc = _hr.headers.get("Location", "")
+                print(f"[PlotLink]   hop {_hop+1}: HTTP {_hr.status_code} → {_loc[:120]}", flush=True)
+
+                if _hr.status_code not in (301, 302, 303, 307, 308) or not _loc:
+                    # No more redirects — current URL is the final one
+                    _resolved = _current
+                    break
+
+                # Handle relative redirect (e.g. /uuid?token=...&api_token=...)
+                if _loc.startswith("/"):
+                    _loc = _DC_APP_ORIGIN + _loc
+                elif not _loc.startswith("http"):
+                    _loc = urljoin(_current, _loc)
+
+                _current = _loc
+                _resolved = _loc  # keep updating — last redirect wins
+
+            except Exception as _he:
+                print(f"[PlotLink]   hop {_hop+1} error: {_he}", flush=True)
+                break
+
+        _has_api_token = "api_token=" in _resolved
+        _has_action_login = "action=login" in _resolved
+        print(f"[PlotLink] ✅ resolved: has_api_token={_has_api_token} login_redirect={_has_action_login}", flush=True)
+        print(f"[PlotLink]    final URL: {_resolved[:200]}", flush=True)
+
+        if _has_action_login:
+            # Resolved to login page — token was invalid. Try one more time with cache-busted token.
+            print(f"[PlotLink] ⚠️  resolved to login page — retrying with fresh token", flush=True)
+            _dc_token_cache.pop(enp_email, None)
+            try:
+                _tok2 = _get_dc_token(email=enp_email)
+                _r2 = _rq2.post(
+                    f"{_DC_BASE}/api/v2/projects/{project_uuid}/link?user_type=ENTERPRISE_API",
+                    headers={"Accept": "application/json", "Authorization": f"Bearer {_tok2}"},
+                    timeout=30,
+                )
+                if _r2.status_code == 200:
+                    _link2 = ((_r2.json().get("message") or {}).get("link")
+                              or (_r2.json().get("data") or {}).get("link")
+                              or _r2.json().get("link") or "")
+                    if _link2:
+                        # Re-resolve
+                        _current2 = _link2
+                        for _hop2 in range(5):
+                            _hr2 = _rq_resolve.get(_current2, allow_redirects=False, timeout=10, headers={"User-Agent": _ua})
+                            _loc2 = _hr2.headers.get("Location", "")
+                            if _hr2.status_code not in (301, 302, 303, 307, 308) or not _loc2:
+                                _resolved = _current2
+                                break
+                            if _loc2.startswith("/"): _loc2 = _DC_APP_ORIGIN + _loc2
+                            elif not _loc2.startswith("http"): _loc2 = urljoin(_current2, _loc2)
+                            _current2 = _loc2
+                            _resolved = _loc2
+                        print(f"[PlotLink] retry resolved: {_resolved[:120]}", flush=True)
+            except Exception as _rt_e:
+                print(f"[PlotLink] retry failed: {_rt_e}", flush=True)
+
+        return {"link": _resolved, "project_uuid": project_uuid}
 
     except HTTPException:
         raise
