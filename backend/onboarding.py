@@ -3,42 +3,66 @@ onboarding.py — User store, onboarding state, and certificate generation
 
 Security fixes applied:
   FIX-3  XSS: html.escape() on all user fields in HTML templates (_e helper)
-  FIX-4  Cert ID enumeration: O(1) CERT_INDEX lookup; no full iteration
-  FIX-5  Plaintext PII: Fernet-encrypted sensitive fields; os.chmod(600) on data files
-  FIX-8  Race conditions: asyncio.Lock for USERS and TEST_SESSIONS; atomic file writes
+  FIX-4  Cert ID enumeration: O(1) lookup via DB index; no full iteration
+  FIX-5  PII stored in SQLite (OS-level file permissions on data/ dir)
+  FIX-8  Race conditions: SQLite WAL serialises writes; no app-level lock needed
 """
 
 import os
-import json
 import uuid
-import time
-import asyncio
-import stat
 import html as _html
-import threading
 from datetime import datetime, timezone
 from typing import Optional
 from pathlib import Path
 
-# FIX-5: Fernet encryption for PII fields at rest
+import logging
+logger = logging.getLogger(__name__)
+
+# ─── Fernet encryption helpers (FIX-5) ────────────────────────────────────────
+# Kept so that migrate.py can decrypt legacy JSON data on first run.
+
 try:
     from cryptography.fernet import Fernet
     _fernet_key = os.getenv("DATA_ENCRYPTION_KEY", "")
     if _fernet_key:
-        _fernet = Fernet(_fernet_key.encode() if isinstance(_fernet_key, str) else _fernet_key)
+        _fernet = Fernet(
+            _fernet_key.encode() if isinstance(_fernet_key, str) else _fernet_key
+        )
     else:
         _fernet = None
 except ImportError:
     _fernet = None
 
-# Sensitive fields that are encrypted before writing to disk
-_SENSITIVE_FIELDS = {
-    "email", "first_name", "last_name", "picture",
-    "provider_id", "phone",
-}
+_SENSITIVE_FIELDS = {"email", "first_name", "last_name", "picture", "provider_id", "phone"}
 
-import logging
-logger = logging.getLogger(__name__)
+
+def _encrypt_field(value: str) -> str:
+    if _fernet is None or not value:
+        return value
+    return _fernet.encrypt(value.encode()).decode()
+
+
+def _decrypt_field(value: str) -> str:
+    if _fernet is None or not value:
+        return value
+    try:
+        return _fernet.decrypt(value.encode()).decode()
+    except Exception:
+        return value  # legacy unencrypted data — return as-is
+
+
+def _encrypt_user(user: dict) -> dict:
+    encrypted = {}
+    for key, val in user.items():
+        encrypted[key] = _encrypt_field(val) if key in _SENSITIVE_FIELDS and isinstance(val, str) else val
+    return encrypted
+
+
+def _decrypt_user(user: dict) -> dict:
+    decrypted = {}
+    for key, val in user.items():
+        decrypted[key] = _decrypt_field(val) if key in _SENSITIVE_FIELDS and isinstance(val, str) else val
+    return decrypted
 
 
 # ─── HTML-escape helper (FIX-3) ───────────────────────────────────────────────
@@ -48,192 +72,17 @@ def _e(s) -> str:
     return _html.escape(str(s) if s else "")
 
 
-# ─── Encryption helpers (FIX-5) ───────────────────────────────────────────────
-
-def _encrypt_field(value: str) -> str:
-    """Encrypt a string field. Returns original if Fernet not configured."""
-    if _fernet is None or not value:
-        return value
-    return _fernet.encrypt(value.encode()).decode()
-
-
-def _decrypt_field(value: str) -> str:
-    """Decrypt a string field. Returns original if Fernet not configured."""
-    if _fernet is None or not value:
-        return value
-    try:
-        return _fernet.decrypt(value.encode()).decode()
-    except Exception:
-        # If decryption fails (e.g., unencrypted legacy data), return as-is
-        return value
-
-
-def _encrypt_user(user: dict) -> dict:
-    """Return a copy of the user dict with sensitive fields encrypted."""
-    encrypted = {}
-    for key, val in user.items():
-        if key in _SENSITIVE_FIELDS and isinstance(val, str):
-            encrypted[key] = _encrypt_field(val)
-        else:
-            encrypted[key] = val
-    return encrypted
-
-
-def _decrypt_user(user: dict) -> dict:
-    """Return a copy of the user dict with sensitive fields decrypted."""
-    decrypted = {}
-    for key, val in user.items():
-        if key in _SENSITIVE_FIELDS and isinstance(val, str):
-            decrypted[key] = _decrypt_field(val)
-        else:
-            decrypted[key] = val
-    return decrypted
-
-
-# ─── IN-MEMORY STORES ─────────────────────────────────────────────────────────
-
-# users: {user_id: {...}}  — held in-memory decrypted; encrypted when persisted
-USERS: dict[str, dict] = {}
-
-# FIX-4: Certificate ID → user_id index for O(1) lookups
-CERT_INDEX: dict[str, str] = {}  # {certificate_id: user_id}
-
-# test sessions: {session_token: {...}}
-TEST_SESSIONS: dict[str, dict] = {}
+# ─── Data directory (for file-upload paths, not JSON persistence) ─────────────
 
 DATA_DIR = Path(__file__).parent / "data"
 DATA_DIR.mkdir(exist_ok=True)
-USERS_FILE = DATA_DIR / "users.json"
 
-# FIX-8: asyncio lock for USERS + file I/O, threading lock for TEST_SESSIONS
-_users_lock = asyncio.Lock()
-_sessions_lock = threading.Lock()  # TEST_SESSIONS accessed from sync context
+# ─── Test sessions (in-memory only — ephemeral by design) ────────────────────
 
+import threading as _threading_sess
+TEST_SESSIONS: dict = {}
+_sessions_lock = _threading_sess.Lock()
 
-# ─── Persistence helpers ──────────────────────────────────────────────────────
-
-def _load_users() -> None:
-    global USERS, CERT_INDEX
-    if not USERS_FILE.exists():
-        return
-    try:
-        raw = json.loads(USERS_FILE.read_text(encoding="utf-8"))
-        # Decrypt each user after loading
-        USERS = {uid: _decrypt_user(u) for uid, u in raw.items()}
-        # Rebuild cert index
-        CERT_INDEX = {
-            u["certificate_id"]: uid
-            for uid, u in USERS.items()
-            if u.get("certificate_id")
-        }
-    except Exception as exc:
-        logger.error("Failed to load users from disk: %s", exc)
-        USERS = {}
-        CERT_INDEX = {}
-
-
-async def _save_users() -> None:
-    """
-    Atomically write USERS to disk with encryption.
-    Must be called within _users_lock.
-    FIX-5: encrypts sensitive fields; FIX-8: atomic write via temp file + rename.
-    """
-    # Encrypt before writing
-    encrypted_users = {uid: _encrypt_user(u) for uid, u in USERS.items()}
-    tmp_path = USERS_FILE.with_suffix(".tmp")
-    try:
-        tmp_path.write_text(
-            json.dumps(encrypted_users, indent=2, default=str),
-            encoding="utf-8",
-        )
-        # FIX-5: restrict file permissions to owner-only (600)
-        try:
-            os.chmod(tmp_path, stat.S_IRUSR | stat.S_IWUSR)
-        except OSError:
-            pass  # Windows may not support POSIX chmod — best-effort
-        # Atomic rename
-        tmp_path.replace(USERS_FILE)
-        # Apply permissions to final file too
-        try:
-            os.chmod(USERS_FILE, stat.S_IRUSR | stat.S_IWUSR)
-        except OSError:
-            pass
-    except Exception as exc:
-        logger.error("Failed to save users to disk: %s", exc)
-        if tmp_path.exists():
-            tmp_path.unlink(missing_ok=True)
-        raise
-
-
-# Load on module import (before event loop starts — sync is fine here)
-_load_users()
-
-
-# ─── User CRUD ────────────────────────────────────────────────────────────────
-
-async def get_or_create_user(provider_info: dict) -> dict:
-    """Find existing user by email or create new one."""
-    email = provider_info.get("email", "").lower()
-
-    async with _users_lock:
-        # Search existing users by email
-        for uid, user in USERS.items():
-            if user.get("email", "").lower() == email:
-                user["last_login"] = datetime.now(timezone.utc).isoformat()
-                user["provider"] = provider_info.get("provider")
-                await _save_users()
-                return dict(user)
-
-        # Create new user
-        user_id = str(uuid.uuid4())
-        user: dict = {
-            "id": user_id,
-            "email": email,
-            "first_name": provider_info.get("first_name", ""),
-            "last_name": provider_info.get("last_name", ""),
-            "picture": provider_info.get("picture", ""),
-            "provider": provider_info.get("provider"),
-            "provider_id": provider_info.get("provider_id"),
-            "email_verified": provider_info.get("email_verified", False),
-            "role": None,
-            "onboarding_step": "role_select",
-            "profile": {},
-            "test_result": None,
-            "liveness_verified": False,
-            "national_id_uploaded": False,
-            "certificate_status": "none",
-            "certificate_id": None,
-            "retake_count": 0,
-            "retake_payment_confirmed": False,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "last_login": datetime.now(timezone.utc).isoformat(),
-        }
-        USERS[user_id] = user
-        await _save_users()
-        return dict(user)
-
-
-def get_user(user_id: str) -> Optional[dict]:
-    """Return a copy of the user dict or None."""
-    user = USERS.get(user_id)
-    return dict(user) if user else None
-
-
-async def update_user(user_id: str, updates: dict) -> Optional[dict]:
-    """Update user fields and persist to disk."""
-    async with _users_lock:
-        if user_id not in USERS:
-            return None
-        USERS[user_id].update(updates)
-        # Keep CERT_INDEX in sync if certificate_id changed
-        cert_id = USERS[user_id].get("certificate_id")
-        if cert_id:
-            CERT_INDEX[cert_id] = user_id
-        await _save_users()
-        return dict(USERS[user_id])
-
-
-# ─── Test session store (FIX-8: threading.Lock for sync access) ───────────────
 
 def save_test_session(session_id: str, data: dict) -> None:
     with _sessions_lock:
@@ -246,30 +95,83 @@ def get_test_session(session_id: str) -> Optional[dict]:
         return dict(session) if session else None
 
 
+# ─── User CRUD (backed by SQLite via database.py) ────────────────────────────
+
+import database as _db
+_db.init_db()
+
+
+def get_user(user_id: str) -> Optional[dict]:
+    """Return the user dict for *user_id*, or None."""
+    return _db.get_user(user_id)
+
+
+async def get_or_create_user(provider_info: dict) -> dict:
+    """Find existing user by e-mail or create a new one. Returns the user dict."""
+    email = (provider_info.get("email") or "").strip().lower()
+
+    existing = _db.get_user_by_email(email)
+    if existing:
+        existing["last_login"] = datetime.now(timezone.utc).isoformat()
+        existing["provider"]   = provider_info.get("provider")
+        _db.upsert_user(existing)
+        return existing
+
+    user_id = str(uuid.uuid4())
+    user: dict = {
+        "id":                       user_id,
+        "email":                    email,
+        "first_name":               provider_info.get("first_name", ""),
+        "last_name":                provider_info.get("last_name", ""),
+        "picture":                  provider_info.get("picture", ""),
+        "provider":                 provider_info.get("provider"),
+        "provider_id":              provider_info.get("provider_id"),
+        "email_verified":           provider_info.get("email_verified", False),
+        "role":                     None,
+        "onboarding_step":          "role_select",
+        "profile":                  {},
+        "test_result":              None,
+        "liveness_verified":        False,
+        "national_id_uploaded":     False,
+        "certificate_status":       "none",
+        "certificate_id":           None,
+        "retake_count":             0,
+        "retake_payment_confirmed": False,
+        "created_at":               datetime.now(timezone.utc).isoformat(),
+        "last_login":               datetime.now(timezone.utc).isoformat(),
+    }
+    _db.upsert_user(user)
+    return user
+
+
+async def update_user(user_id: str, updates: dict) -> Optional[dict]:
+    """Apply *updates* to the user and persist. Returns updated dict or None."""
+    user = _db.get_user(user_id)
+    if user is None:
+        return None
+    user.update(updates)
+    _db.upsert_user(user)
+    return user
+
+
 # ─── Certificate helpers ──────────────────────────────────────────────────────
 
 def generate_certificate_id(role: str) -> str:
     """Generate a unique, high-entropy certificate ID."""
     prefix = "ENP" if role == "attorney" else "CLT"
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d")
+    ts  = datetime.now(timezone.utc).strftime("%Y%m%d")
     uid = uuid.uuid4().hex[:16].upper()
     return f"QL-{prefix}-{ts}-{uid}"
 
 
 def lookup_user_by_certificate_id(certificate_id: str) -> Optional[dict]:
-    """
-    FIX-4: O(1) certificate lookup via CERT_INDEX.
-    Returns user dict or None.
-    """
-    user_id = CERT_INDEX.get(certificate_id)
-    if not user_id:
-        return None
-    return get_user(user_id)
+    """O(1) certificate lookup via DB index (FIX-4)."""
+    return _db.lookup_user_by_certificate_id(certificate_id)
 
 
 def get_certificate_html(user: dict) -> str:
-    """Generate printable HTML certificate with all user fields HTML-escaped (FIX-3)."""
-    cert_type = "Electronic Notary Public (ENP)" if user["role"] == "attorney" else "Verified Legal Client"
+    """Generate printable HTML certificate. All user fields HTML-escaped (FIX-3)."""
+    cert_type   = "Electronic Notary Public (ENP)" if user["role"] == "attorney" else "Verified Legal Client"
     cert_status = (
         "PROBATIONARY CERTIFICATION"
         if user["certificate_status"] == "probationary"
@@ -277,10 +179,9 @@ def get_certificate_html(user: dict) -> str:
     )
     status_color = "#f59e0b" if user["certificate_status"] == "probationary" else "#10b981"
 
-    profile = user.get("profile", {})
+    profile   = user.get("profile", {})
     firm_name = profile.get("firm_name", profile.get("organization", ""))
 
-    # FIX-3: Escape ALL user-controlled fields
     first_name      = _e(user.get("first_name", ""))
     last_name       = _e(user.get("last_name", ""))
     certificate_id  = _e(user.get("certificate_id", ""))

@@ -76,6 +76,7 @@
             --muted: #94a3b8;
         }
         * { margin: 0; padding: 0; box-sizing: border-box; }
+        html { scroll-behavior: smooth; }
         body {
             font-family: 'Inter', sans-serif;
             background-color: var(--bg-color);
@@ -4527,6 +4528,22 @@ async function submitAdminLogin() {
 }
 </script>
 <style>@keyframes qlAdminSpin { to { transform: rotate(360deg); } }</style>
+<script>
+(function() {
+  var NAVBAR_HEIGHT = 61;
+  document.addEventListener('click', function(e) {
+    var a = e.target.closest('a[href^="#"]');
+    if (!a) return;
+    var hash = a.getAttribute('href');
+    if (!hash || hash === '#') return;
+    var target = document.querySelector(hash);
+    if (!target) return;
+    e.preventDefault();
+    var top = target.getBoundingClientRect().top + window.pageYOffset - NAVBAR_HEIGHT;
+    window.scrollTo({ top: top, behavior: 'smooth' });
+  });
+})();
+</script>
 
 </body>
 </html>

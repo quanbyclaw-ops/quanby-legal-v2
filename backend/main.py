@@ -46,9 +46,9 @@ from onboarding import (
     generate_certificate_id, get_certificate_html, get_certificate_email_html,
     lookup_user_by_certificate_id,
 )
-# Load persisted test sessions on startup
 from question_bank import get_randomized_test, grade_test
 from email_service import send_welcome_email, send_test_fail_email
+import database as _db
 
 load_dotenv()
 
@@ -171,6 +171,24 @@ class RetakePaymentRequest(BaseModel):
 class LegalChatRequest(BaseModel):
     message: str
     session_id: str = ""
+
+
+class QuickSignAddSignerRequest(BaseModel):
+    project_uuid: str
+    client_email: str
+    first_name: str
+    last_name: str = ""
+
+
+class QuickSignCreateAppointmentRequest(BaseModel):
+    project_uuid: str
+    dc_project_uuid: str
+    doc_name: str
+    client_email: str
+    client_name: str
+    scheduled_at: str = ""
+    notes: str = ""
+    notarization_type: str = "ACKNOWLEDGMENT"
 
 # Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Auth helpers Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
@@ -1661,9 +1679,7 @@ async def chatbot_endpoint(request: LegalChatRequest):
 async def get_sub_org_dc_info(sub_org_id: str, request: Request):
     """Fetch live sub-org details from DoconChain using the stored dc_sub_org_uuid."""
     user = _require_attorney_or_admin(request)
-    with _sub_orgs_lock:
-        orgs = _load_sub_orgs()
-    org = next((o for o in orgs if o["id"] == sub_org_id), None)
+    org = _db.get_suborg(sub_org_id)
     if not org:
         raise HTTPException(404, "Sub-org not found")
     dc_uuid = org.get("dc_sub_org_uuid")
@@ -1683,12 +1699,10 @@ async def get_sub_org_dc_info(sub_org_id: str, request: Request):
         _photo = (_dc_gi.get("branding_photo_url") or _dc_gi.get("photo_url") or
                   (_dc_gi.get("data") or {}).get("photo") or "")
         if _photo and _photo != org.get("dc_photo_url"):
-            with _sub_orgs_lock:
-                orgs2 = _load_sub_orgs()
-                org2 = next((o for o in orgs2 if o["id"] == sub_org_id), None)
-                if org2:
-                    org2["dc_photo_url"] = _photo
-                    _save_sub_orgs(orgs2)
+            org2 = _db.get_suborg(sub_org_id)
+            if org2:
+                org2["dc_photo_url"] = _photo
+                _db.save_suborg(org2)
         return {"dc_data": _dc_gi, "dc_sub_org_uuid": dc_uuid, "dc_photo_url": _photo}
     except _ue_gi.HTTPError as he:
         raise HTTPException(he.code, f"DoconChain error {he.code}: {he.read().decode()[:200]}")
@@ -1920,15 +1934,12 @@ def _add_dc_signer(project_uuid: str, email: str, first_name: str, last_name: st
         err = he.read().decode(errors="replace")
         if he.code == 409 or "already" in err.lower():
             return {"already_added": True}
-        # 400 "Project not found" = project owned by different token account — skip
+        # 400 "Project not found" = wrong token — raise so caller can retry with correct token
         if he.code == 400 and "not found" in err.lower():
-            return {"skipped": True, "reason": "project_not_accessible"}
+            raise Exception(f"Project {project_uuid} not accessible with this token (400). Check ENP token.")
         raise
 
 
-_APTS_FILE = os.path.join(os.path.dirname(__file__), "data", "appointments.json")
-_apts_lock = threading.Lock()
-_registry_lock = threading.Lock()
 # Per-document recreation lock: prevents concurrent "Add Signer" calls on the
 # same document from producing two new DC projects.
 import threading as _threading_doc
@@ -1949,42 +1960,8 @@ def _swap_doc_lock(old_uuid: str, new_uuid: str) -> None:
         if lock and new_uuid:
             _doc_recreation_locks[new_uuid] = lock
 
-
-_appointments: dict = {}
-
-
-def _load_appointments() -> None:
-    global _appointments
-    if os.path.exists(_APTS_FILE):
-        try:
-            with open(_APTS_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                _appointments = data if isinstance(data, dict) else {}
-        except Exception:
-            _appointments = {}
-    else:
-        _appointments = {}
-
-
-def _save_appointments() -> None:
-    os.makedirs(os.path.dirname(_APTS_FILE), exist_ok=True)
-    with open(_APTS_FILE, "w", encoding="utf-8") as f:
-        json.dump(_appointments, f, indent=2, ensure_ascii=False)
-
-def _reload_appointments() -> None:
-    """Reload appointments from disk — needed in multi-worker uvicorn deployments
-    so each worker always has the latest state before processing a request."""
-    global _appointments
-    try:
-        if os.path.exists(_APTS_FILE):
-            with open(_APTS_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                _appointments = data if isinstance(data, dict) else {}
-    except Exception:
-        pass
-
-
-_load_appointments()
+# Initialise SQLite DB (idempotent — safe to call on every startup)
+_db.init_db()
 
 
 # ─── Pydantic models ──────────────────────────────────────────────────────────
@@ -2007,9 +1984,8 @@ class AppointmentActionRequest(BaseModel):
 @app.get("/api/enps")
 async def list_certified_enps():
     """Public endpoint — returns all certified ENPs."""
-    from onboarding import USERS as _users  # reuse the in-memory dict
     result = []
-    for uid, u in _users.items():
+    for u in _db.list_users():
         if u.get("role") != "attorney":
             continue
         if u.get("certificate_status") != "certified":
@@ -2080,9 +2056,7 @@ async def create_appointment(
         "doconchain_sign_link": None,
     }
 
-    with _apts_lock:
-        _appointments[apt_id] = apt
-        _save_appointments()
+    _db.save_apt(apt)
 
     return apt
 
@@ -2102,14 +2076,19 @@ async def get_appointments(
     role = user.get("role")
     uid = user["id"]
 
-    with _apts_lock:
-        _reload_appointments()  # multi-worker: always read fresh from disk
-    all_apts = list(_appointments.values())
+    all_apts = _db.list_apts()
 
     if role == "client":
-        filtered = [a for a in all_apts if a["client_id"] == uid]
+        user_email = (user.get("email") or "").lower().strip()
+        filtered = [
+            a for a in all_apts
+            if a.get("client_id") == uid
+            # Also include QuickSign appointments where the signer's email matches
+            or ((a.get("client_id") or "").startswith("guest:") and
+                (a.get("client_email") or "").lower().strip() == user_email)
+        ]
     elif role == "attorney":
-        filtered = [a for a in all_apts if a["enp_id"] == uid]
+        filtered = [a for a in all_apts if a.get("enp_id") == uid]
     else:
         filtered = []
 
@@ -2132,8 +2111,7 @@ async def get_appointment_by_id(
     if not user:
         raise HTTPException(401, "Unauthorized")
 
-    with _apts_lock:
-        apt = _appointments.get(apt_id)
+    apt = _db.get_apt(apt_id)
 
     if not apt:
         raise HTTPException(404, "Appointment not found")
@@ -2163,26 +2141,23 @@ async def update_appointment(
     if req.action not in ("confirm", "decline"):
         raise HTTPException(400, "action must be 'confirm' or 'decline'")
 
-    with _apts_lock:
-        _reload_appointments()  # multi-worker: always read fresh from disk
-        apt = _appointments.get(apt_id)
-        if not apt:
-            raise HTTPException(404, "Appointment not found")
-        if apt["enp_id"] != user["id"]:
-            raise HTTPException(403, "Not your appointment")
-        if apt["status"] not in ("PENDING",):
-            raise HTTPException(400, f"Cannot act on appointment with status {apt['status']}")
+    apt = _db.get_apt(apt_id)
+    if not apt:
+        raise HTTPException(404, "Appointment not found")
+    if apt["enp_id"] != user["id"]:
+        raise HTTPException(403, "Not your appointment")
+    if apt["status"] not in ("PENDING",):
+        raise HTTPException(400, f"Cannot act on appointment with status {apt['status']}")
 
-        now_iso = _dt.now(_tz.utc).isoformat()
-        if req.action == "confirm":
-            apt["status"] = "CONFIRMED"
-            apt["confirmed_at"] = now_iso
-        else:
-            apt["status"] = "DECLINED"
+    now_iso = _dt.now(_tz.utc).isoformat()
+    if req.action == "confirm":
+        apt["status"] = "CONFIRMED"
+        apt["confirmed_at"] = now_iso
+    else:
+        apt["status"] = "DECLINED"
 
-        apt["updated_at"] = now_iso
-        _appointments[apt_id] = apt
-        _save_appointments()
+    apt["updated_at"] = now_iso
+    _db.save_apt(apt)
 
     return apt
 
@@ -2353,15 +2328,13 @@ async def create_doconchain_project(
     if user.get("role") != "attorney":
         raise HTTPException(403, "Only ENPs can start signing sessions")
 
-    with _apts_lock:
-        _reload_appointments()  # multi-worker: always read fresh from disk
-        apt = _appointments.get(apt_id)
-        if not apt:
-            raise HTTPException(404, "Appointment not found")
-        if apt["enp_id"] != user["id"]:
-            raise HTTPException(403, "Not your appointment")
-        if apt["status"] != "CONFIRMED":
-            raise HTTPException(400, "Appointment must be CONFIRMED before starting signing")
+    apt = _db.get_apt(apt_id)
+    if not apt:
+        raise HTTPException(404, "Appointment not found")
+    if apt["enp_id"] != user["id"]:
+        raise HTTPException(403, "Not your appointment")
+    if apt["status"] != "CONFIRMED":
+        raise HTTPException(400, "Appointment must be CONFIRMED before starting signing")
 
     # DoconChain credentials
     DC_BASE = _DC_BASE
@@ -2504,13 +2477,12 @@ async def create_doconchain_project(
         except Exception as _e:
             _signer_results["client"] = {"error": str(_e)[:100]}
 
-    with _apts_lock:
-        _appointments[apt_id]["doconchain_project_uuid"] = project_uuid
-        _appointments[apt_id]["doconchain_sign_link"] = sign_link
-        _appointments[apt_id]["doconchain_client_email"] = apt.get("client_email", "")
-        _appointments[apt_id]["doconchain_enp_email"] = apt.get("enp_email", "")
-        _appointments[apt_id]["updated_at"] = _dt.now(_tz.utc).isoformat()
-        _save_appointments()
+    apt["doconchain_project_uuid"] = project_uuid
+    apt["doconchain_sign_link"] = sign_link
+    apt["doconchain_client_email"] = apt.get("client_email", "")
+    apt["doconchain_enp_email"] = apt.get("enp_email", "")
+    apt["updated_at"] = _dt.now(_tz.utc).isoformat()
+    _db.save_apt(apt)
 
     return {
         "success": True,
@@ -2664,15 +2636,19 @@ async def get_session_participants(
     if not user:
         raise HTTPException(401, "Unauthorized")
 
-    with _apts_lock:
-        _reload_appointments()
-        apt = _appointments.get(apt_id)
+    apt = _db.get_apt(apt_id)
 
     if not apt:
         raise HTTPException(404, "Appointment not found")
 
     # Only ENP or client can view participants
-    if user["id"] not in (apt.get("enp_id"), apt.get("client_id")):
+    _u_email_s = (user.get("email") or "").lower().strip()
+    _ok_s = (user["id"] in (apt.get("enp_id"), apt.get("client_id"))
+             or ((apt.get("client_id") or "").startswith("guest:")
+                 and (apt.get("client_email") or "").lower().strip() == _u_email_s)
+             or any((p.get("email") or "").lower() == _u_email_s
+                    for p in apt.get("session_participants", [])))
+    if not _ok_s:
         raise HTTPException(403, "Not authorized for this session")
 
     # Base participants (ENP + Client)
@@ -2754,9 +2730,7 @@ async def generate_sign_links(
     if not user:
         raise HTTPException(401, "Unauthorized")
 
-    with _apts_lock:
-        _reload_appointments()
-        apt = _appointments.get(apt_id)
+    apt = _db.get_apt(apt_id)
     if not apt:
         raise HTTPException(404, "Appointment not found")
 
@@ -2765,10 +2739,22 @@ async def generate_sign_links(
     _accepted_for_sign = set()
     if apt.get("enp_id"):     _accepted_for_sign.add(apt["enp_id"])
     if apt.get("client_id"):  _accepted_for_sign.add(apt["client_id"])
-    if user["id"] not in _accepted_for_sign:
+    _is_sign_participant = user["id"] in _accepted_for_sign
+    if not _is_sign_participant:
         # Also allow invited session_participants by email
         _invited_emails = {(p.get("email") or "").lower().strip() for p in apt.get("session_participants", [])}
-        if _user_email not in _invited_emails:
+        # Also allow QuickSign guest clients matched by email
+        _client_email_match = (
+            (apt.get("client_id") or "").startswith("guest:") and
+            (apt.get("client_email") or "").lower().strip() == _user_email
+        )
+        # Also allow document signers matched by email
+        _is_doc_signer = any(
+            (s.get("email") or "").lower().strip() == _user_email
+            for doc in apt.get("session_documents", [])
+            for s in doc.get("signers", [])
+        )
+        if _user_email not in _invited_emails and not _client_email_match and not _is_doc_signer:
             raise HTTPException(403, "You are not a participant of this appointment")
 
     # Find the document
@@ -2834,7 +2820,26 @@ async def generate_sign_links(
                     _d = _json4.loads(_r.read().decode())
                     link = _d.get("message") or (_d.get("data") or {}).get("link") or _d.get("link")
                     if link and link.startswith("http"):
-                        return {"email": signer_email, "link": link, "status": "ok"}
+                        # Resolve short link to get embedded auth token (302 Location header)
+                        resolved = link
+                        if "link.doconchain.com" in link or "doconchain.com" in link:
+                            import urllib.request as _ureq_r2, urllib.error as _uerr_r2
+                            class _NoRedir2(_ureq_r2.HTTPRedirectHandler):
+                                def http_error_302(self, req, fp, code, msg, headers):
+                                    raise _uerr_r2.HTTPError(req.full_url, code, msg, headers, fp)
+                                http_error_301 = http_error_302
+                                http_error_303 = http_error_302
+                                http_error_307 = http_error_302
+                            _opener2 = _ureq_r2.build_opener(_NoRedir2)
+                            try:
+                                _r3 = _ureq_r2.Request(link, headers={"User-Agent": "Mozilla/5.0"}, method="GET")
+                                with _opener2.open(_r3, timeout=8) as _rr: resolved = link
+                            except _uerr_r2.HTTPError as _he2:
+                                _loc = _he2.headers.get("Location", "")
+                                if _loc and _loc.startswith("http"):
+                                    resolved = _loc
+                            except Exception: pass
+                        return {"email": signer_email, "link": resolved, "status": "ok"}
                     return {"email": signer_email, "link": None, "status": "no_link", "raw": str(_d)[:100]}
             except _uerr3.HTTPError as he:
                 err = he.read().decode(errors="replace")
@@ -2877,9 +2882,9 @@ async def generate_sign_links(
             sign_links.append({"email": s.get("email",""), "link": None, "status": "not_generated_for_caller"})
 
     # Record signing initiated + create PENDING signature_requests rows
-    with _apts_lock:
-        _reload_appointments()
-        for _d2 in _appointments.get(apt_id, {}).get("session_documents", []):
+    _apt2 = _db.get_apt(apt_id)
+    if _apt2:
+        for _d2 in _apt2.get("session_documents", []):
             _duuid2 = _d2.get("doconchain_project_uuid") or _d2.get("project_uuid")
             if _duuid2 == project_uuid:
                 _d2["signing_initiated"] = True
@@ -2897,7 +2902,7 @@ async def generate_sign_links(
                             "source": None,
                         }
                 _d2["signature_requests"] = list(existing_sr.values())
-                _save_appointments()
+                _db.save_apt(_apt2)
                 break
 
     return {"project_uuid": project_uuid, "sign_links": sign_links}
@@ -2922,9 +2927,7 @@ async def mark_signer_signed(
     if not user:
         raise HTTPException(401, "Unauthorized")
 
-    with _apts_lock:
-        _reload_appointments()
-        apt = _appointments.get(apt_id)
+    apt = _db.get_apt(apt_id)
     if not apt:
         raise HTTPException(404, "Appointment not found")
 
@@ -2942,62 +2945,61 @@ async def mark_signer_signed(
 
     _now = _dt.now(_tz.utc).isoformat()
 
-    with _apts_lock:
-        _reload_appointments()
-        for _doc in _appointments.get(apt_id, {}).get("session_documents", []):
-            _duuid = _doc.get("doconchain_project_uuid") or _doc.get("project_uuid")
-            if _duuid != project_uuid:
-                continue
+    _mark_apt = _db.get_apt(apt_id)
+    for _doc in (_mark_apt or {}).get("session_documents", []):
+        _duuid = _doc.get("doconchain_project_uuid") or _doc.get("project_uuid")
+        if _duuid != project_uuid:
+            continue
 
-            # Build ordered signer list from doc.signers
-            _doc_signers = sorted(_doc.get("signers", []), key=lambda s: s.get("signing_order", 99))
-            _my_signer = next(
-                (s for s in _doc_signers if (s.get("email") or "").lower() == _user_email), None
-            )
-            if not _my_signer:
-                raise HTTPException(400, f"You are not in the signer list for this document.")
+        # Build ordered signer list from doc.signers
+        _doc_signers = sorted(_doc.get("signers", []), key=lambda s: s.get("signing_order", 99))
+        _my_signer = next(
+            (s for s in _doc_signers if (s.get("email") or "").lower() == _user_email), None
+        )
+        if not _my_signer:
+            raise HTTPException(400, f"You are not in the signer list for this document.")
 
-            _my_order = _my_signer.get("signing_order", 99)
+        _my_order = _my_signer.get("signing_order", 99)
 
-            # Build status map from signature_requests
-            _sr_map = {r.get("email", "").lower(): r for r in _doc.get("signature_requests", [])}
+        # Build status map from signature_requests
+        _sr_map = {r.get("email", "").lower(): r for r in _doc.get("signature_requests", [])}
 
-            # Sequential check: all signers with order < my_order must be SIGNED
-            _blockers = [
-                s for s in _doc_signers
-                if s.get("signing_order", 99) < _my_order
-                and _sr_map.get((s.get("email") or "").lower(), {}).get("status") != "SIGNED"
-            ]
-            if _blockers:
-                _blocker_emails = [s.get("email") for s in _blockers]
-                raise HTTPException(409,
-                    f"Cannot sign yet — waiting for earlier signers: {', '.join(_blocker_emails)}")
+        # Sequential check: all signers with order < my_order must be SIGNED
+        _blockers = [
+            s for s in _doc_signers
+            if s.get("signing_order", 99) < _my_order
+            and _sr_map.get((s.get("email") or "").lower(), {}).get("status") != "SIGNED"
+        ]
+        if _blockers:
+            _blocker_emails = [s.get("email") for s in _blockers]
+            raise HTTPException(409,
+                f"Cannot sign yet — waiting for earlier signers: {', '.join(_blocker_emails)}")
 
-            # Already signed?
-            if _sr_map.get(_user_email, {}).get("status") == "SIGNED":
-                return {"success": True, "email": _user_email, "status": "SIGNED", "already": True}
+        # Already signed?
+        if _sr_map.get(_user_email, {}).get("status") == "SIGNED":
+            return {"success": True, "email": _user_email, "status": "SIGNED", "already": True}
 
-            # Mark as signed
-            sr_list = _doc.get("signature_requests", [])
-            updated = False
-            for row in sr_list:
-                if row.get("email", "").lower() == _user_email:
-                    row["status"] = "SIGNED"
-                    row["signed_at"] = _now
-                    row["source"] = "heuristic"
-                    updated = True
-                    break
-            if not updated:
-                sr_list.append({
-                    "email": _user_email,
-                    "signing_order": _my_order,
-                    "status": "SIGNED",
-                    "signed_at": _now,
-                    "source": "heuristic",
-                })
-                _doc["signature_requests"] = sr_list
-            _save_appointments()
-            return {"success": True, "email": _user_email, "status": "SIGNED", "signed_at": _now}
+        # Mark as signed
+        sr_list = _doc.get("signature_requests", [])
+        updated = False
+        for row in sr_list:
+            if row.get("email", "").lower() == _user_email:
+                row["status"] = "SIGNED"
+                row["signed_at"] = _now
+                row["source"] = "heuristic"
+                updated = True
+                break
+        if not updated:
+            sr_list.append({
+                "email": _user_email,
+                "signing_order": _my_order,
+                "status": "SIGNED",
+                "signed_at": _now,
+                "source": "heuristic",
+            })
+            _doc["signature_requests"] = sr_list
+        _db.save_apt(_mark_apt)
+        return {"success": True, "email": _user_email, "status": "SIGNED", "signed_at": _now}
 
     raise HTTPException(404, "Document not found in session")
 
@@ -3031,39 +3033,38 @@ async def doconchain_webhook(request: Request):
         return {"ok": True, "note": f"unhandled event: {event_type}"}
 
     # Find matching document across all appointments
-    with _apts_lock:
-        _reload_appointments()
-        for _aid, _apt in _appointments.items():
-            for _doc in _apt.get("session_documents", []):
-                _duuid = _doc.get("doconchain_project_uuid") or _doc.get("project_uuid")
-                if _duuid != project_uuid:
-                    continue
-                sr_list = _doc.get("signature_requests", [])
-                for row in sr_list:
-                    if not signer_email or row.get("email", "").lower() == signer_email:
-                        row["status"] = new_status
-                        row["signed_at"] = signed_at
-                        row["source"] = "webhook"
-                if signer_email:
-                    # Ensure row exists
-                    emails = [r.get("email","").lower() for r in sr_list]
-                    if signer_email not in emails:
-                        sr_list.append({"email": signer_email, "signing_order": 99,
-                                        "status": new_status, "signed_at": signed_at, "source": "webhook"})
-                _doc["signature_requests"] = sr_list
-                _save_appointments()
-                # Trigger registry population if project is completed
-                if new_status == "SIGNED" and "complete" in event_type:
-                    import threading as _wh_t
-                    _wh_enp_id = _apt.get("enp_id", "")
-                    if _wh_enp_id:
-                        print(f"[Webhook] complete event for {project_uuid[:12]} → registry populate", flush=True)
-                        _wh_t.Thread(
-                            target=_populate_registry_bg,
-                            args=(_aid, _wh_enp_id),
-                            daemon=True
-                        ).start()
-                return {"ok": True, "updated": project_uuid, "signer": signer_email, "status": new_status}
+    for _apt in _db.list_apts():
+        _aid = _apt.get("apt_id")
+        for _doc in _apt.get("session_documents", []):
+            _duuid = _doc.get("doconchain_project_uuid") or _doc.get("project_uuid")
+            if _duuid != project_uuid:
+                continue
+            sr_list = _doc.get("signature_requests", [])
+            for row in sr_list:
+                if not signer_email or row.get("email", "").lower() == signer_email:
+                    row["status"] = new_status
+                    row["signed_at"] = signed_at
+                    row["source"] = "webhook"
+            if signer_email:
+                # Ensure row exists
+                emails = [r.get("email","").lower() for r in sr_list]
+                if signer_email not in emails:
+                    sr_list.append({"email": signer_email, "signing_order": 99,
+                                    "status": new_status, "signed_at": signed_at, "source": "webhook"})
+            _doc["signature_requests"] = sr_list
+            _db.save_apt(_apt)
+            # Trigger registry population if project is completed
+            if new_status == "SIGNED" and "complete" in event_type:
+                import threading as _wh_t
+                _wh_enp_id = _apt.get("enp_id", "")
+                if _wh_enp_id:
+                    print(f"[Webhook] complete event for {project_uuid[:12]} → registry populate", flush=True)
+                    _wh_t.Thread(
+                        target=_populate_registry_bg,
+                        args=(_aid, _wh_enp_id),
+                        daemon=True
+                    ).start()
+            return {"ok": True, "updated": project_uuid, "signer": signer_email, "status": new_status}
 
     return {"ok": True, "note": "project not found in active appointments"}
 
@@ -3081,9 +3082,7 @@ async def get_signer_status(
     if not user:
         raise HTTPException(401, "Unauthorized")
 
-    with _apts_lock:
-        _reload_appointments()
-        apt = _appointments.get(apt_id)
+    apt = _db.get_apt(apt_id)
     if not apt:
         raise HTTPException(404, "Appointment not found")
     if user["id"] not in (apt.get("enp_id"), apt.get("client_id")):
@@ -3195,13 +3194,31 @@ async def get_signer_status(
                     }
                     _need_save = True
             if _need_save:
-                with _apts_lock:
-                    _reload_appointments()
-                    for _d4 in _appointments.get(apt_id, {}).get("session_documents", []):
+                _sync_apt = _db.get_apt(apt_id)
+                if _sync_apt:
+                    for _d4 in _sync_apt.get("session_documents", []):
                         _du4 = _d4.get("doconchain_project_uuid") or _d4.get("project_uuid")
                         if _du4 == project_uuid:
                             _d4["signature_requests"] = list(internal_sr.values())
-                            _save_appointments()
+                            # Mark doc as completed if ALL signers have signed
+                            _all_sr = list(internal_sr.values())
+                            _all_signed_now = (
+                                len(_all_sr) > 0 and
+                                all(r.get("status") == "SIGNED" for r in _all_sr)
+                            )
+                            if _all_signed_now and _d4.get("status") != "completed":
+                                _d4["status"] = "completed"
+                                _d4["completed_at"] = _dt.now(_tz.utc).isoformat()
+                                print(f"[SignerStatus] All signed — doc {project_uuid[:12]} marked completed, triggering registry", flush=True)
+                                # Trigger registry population immediately (don't wait for end_session)
+                                import threading as _t_ss
+                                _enp_id_ss = apt.get("enp_id", "")
+                                _t_ss.Thread(
+                                    target=_populate_registry_bg,
+                                    args=(apt_id, _enp_id_ss),
+                                    daemon=True,
+                                ).start()
+                            _db.save_apt(_sync_apt)
                             break
 
         return {
@@ -3309,16 +3326,14 @@ async def get_plot_link(
             raise HTTPException(502, f"No link in DoconChain response: {str(resp_data)[:200]}")
 
         # Record that plotting was started for this document
-        with _apts_lock:
-            _reload_appointments()
-            for _aid, _apt in _appointments.items():
-                for _doc in _apt.get("session_documents", []):
-                    _duuid = _doc.get("doconchain_project_uuid") or _doc.get("project_uuid")
-                    if _duuid == project_uuid:
-                        _doc["plotting_started"] = True
-                        _doc["plotting_started_at"] = _dt.now(_tz.utc).isoformat()
-                        _save_appointments()
-                        break
+        for _apt in _db.list_apts():
+            for _doc in _apt.get("session_documents", []):
+                _duuid = _doc.get("doconchain_project_uuid") or _doc.get("project_uuid")
+                if _duuid == project_uuid:
+                    _doc["plotting_started"] = True
+                    _doc["plotting_started_at"] = _dt.now(_tz.utc).isoformat()
+                    _db.save_apt(_apt)
+                    break
 
         # Resolve DC short link by capturing the 302 Location header (NOT following through).
         # The 302 Location contains the fresh token+api_token for auto-login.
@@ -3386,28 +3401,25 @@ async def create_session(
     if user.get("role") != "attorney":
         raise HTTPException(403, "Only ENPs can create sessions")
 
-    with _apts_lock:
-        _reload_appointments()
-        apt = _appointments.get(req.apt_id)
-        if not apt:
-            raise HTTPException(404, "Appointment not found")
-        if apt.get("enp_id") != user["id"]:
-            raise HTTPException(403, "Not your appointment")
+    apt = _db.get_apt(req.apt_id)
+    if not apt:
+        raise HTTPException(404, "Appointment not found")
+    if apt.get("enp_id") != user["id"]:
+        raise HTTPException(403, "Not your appointment")
 
-        ts        = int(time.time())
-        room_name = f"ql-{req.apt_id[:8]}-{ts}"
-        enp_name  = f"{user.get('first_name', '')} {user.get('last_name', '')}".strip() or "ENP"
-        token     = _create_livekit_token(room_name, user["id"], enp_name, can_publish=True)
-        now_iso   = _dt.now(_tz.utc).isoformat()
+    ts        = int(time.time())
+    room_name = f"ql-{req.apt_id[:8]}-{ts}"
+    enp_name  = f"{user.get('first_name', '')} {user.get('last_name', '')}".strip() or "ENP"
+    token     = _create_livekit_token(room_name, user["id"], enp_name, can_publish=True)
+    now_iso   = _dt.now(_tz.utc).isoformat()
 
-        apt["session_room_name"]    = room_name
-        apt["session_status"]       = "active"
-        apt["session_created_at"]   = now_iso
-        apt["session_ended_at"]     = None
-        apt["session_participants"] = apt.get("session_participants", [])
-        apt["updated_at"]           = now_iso
-        _appointments[req.apt_id]   = apt
-        _save_appointments()
+    apt["session_room_name"]    = room_name
+    apt["session_status"]       = "active"
+    apt["session_created_at"]   = now_iso
+    apt["session_ended_at"]     = None
+    apt["session_participants"] = apt.get("session_participants", [])
+    apt["updated_at"]           = now_iso
+    _db.save_apt(apt)
 
     session_link = f"https://legal.quanbyai.com/session?room={room_name}&apt={req.apt_id}"
     return {
@@ -3431,20 +3443,39 @@ async def join_session(
     if not user:
         raise HTTPException(401, "Unauthorized")
 
-    with _apts_lock:
-        _reload_appointments()
-        apt = _appointments.get(req.apt_id)
-        if not apt:
-            raise HTTPException(404, "Appointment not found")
+    apt = _db.get_apt(req.apt_id)
+    if not apt:
+        raise HTTPException(404, "Appointment not found")
 
     uid = user["id"]
-    if uid != apt.get("client_id") and uid != apt.get("enp_id"):
+    user_email = (user.get("email") or "").lower().strip()
+
+    # Allow join if: uid matches ENP/client, OR client_id is guest: and email matches
+    _is_enp    = uid == apt.get("enp_id")
+    _is_client = (uid == apt.get("client_id")
+                  or ((apt.get("client_id") or "").startswith("guest:")
+                      and (apt.get("client_email") or "").lower().strip() == user_email))
+    # Also allow invited session_participants by email
+    _is_invited = any(
+        (p.get("email") or "").lower().strip() == user_email
+        for p in apt.get("session_participants", [])
+    )
+
+    if not (_is_enp or _is_client or _is_invited):
         raise HTTPException(403, "Not your appointment")
 
-    if apt.get("session_status") != "active":
+    # For QuickSign appointments: always allow join as long as room exists
+    _is_quicksign = apt.get("quicksign") or apt.get("dc_workflow_state") == "plotting_done"
+    if apt.get("session_status") != "active" and not (_is_quicksign and apt.get("session_room_name")):
         raise HTTPException(400, "Session is not active")
+    # Auto-reactivate QuickSign session if it was accidentally ended
+    if _is_quicksign and apt.get("session_status") != "active" and apt.get("session_room_name"):
+        _qs_reactivate = _db.get_apt(req.apt_id)
+        if _qs_reactivate and _qs_reactivate.get("quicksign"):
+            _qs_reactivate["session_status"] = "active"
+            _db.save_apt(_qs_reactivate)
 
-    is_enp    = uid == apt.get("enp_id")
+    is_enp    = _is_enp
     user_role = "ENP" if is_enp else "Client"
     user_name = f"{user.get('first_name', '')} {user.get('last_name', '')}".strip() or user_role
     # ALWAYS use authoritative room_name from DB — never trust client-supplied value
@@ -3479,35 +3510,30 @@ async def invite_to_session(
     if role_upper not in ("WITNESS", "OBSERVER"):
         raise HTTPException(400, "Role must be WITNESS or OBSERVER")
 
-    with _apts_lock:
-        _reload_appointments()
-        apt = _appointments.get(req.apt_id)
-        if not apt:
-            raise HTTPException(404, "Appointment not found")
-        if apt.get("enp_id") != user["id"]:
-            raise HTTPException(403, "Not your appointment")
+    apt = _db.get_apt(req.apt_id)
+    if not apt:
+        raise HTTPException(404, "Appointment not found")
+    if apt.get("enp_id") != user["id"]:
+        raise HTTPException(403, "Not your appointment")
 
-        room_name = apt.get("session_room_name")
-        if not room_name:
-            raise HTTPException(400, "No active session for this appointment")
+    room_name = apt.get("session_room_name")
+    if not room_name:
+        raise HTTPException(400, "No active session for this appointment")
 
-        can_publish = (role_upper == "WITNESS")
-        identity    = f"guest-{uuid.uuid4().hex[:8]}"
-        token       = _create_livekit_token(room_name, identity, req.name, can_publish=can_publish)
-        now_iso     = _dt.now(_tz.utc).isoformat()
+    can_publish = (role_upper == "WITNESS")
+    identity    = f"guest-{uuid.uuid4().hex[:8]}"
+    token       = _create_livekit_token(room_name, identity, req.name, can_publish=can_publish)
+    now_iso     = _dt.now(_tz.utc).isoformat()
 
-        participant = {
-            "email":      req.email,
-            "name":       req.name,
-            "role":       role_upper,
-            "invited_at": now_iso,
-            "identity":   identity,
-        }
-        if "session_participants" not in apt:
-            apt["session_participants"] = []
-        apt["session_participants"].append(participant)
-        _appointments[req.apt_id] = apt
-        _save_appointments()
+    participant = {
+        "email":      req.email,
+        "name":       req.name,
+        "role":       role_upper,
+        "invited_at": now_iso,
+        "identity":   identity,
+    }
+    apt.setdefault("session_participants", []).append(participant)
+    _db.save_apt(apt)
 
     join_link = (
         f"https://legal.quanbyai.com/lobby"
@@ -3532,14 +3558,18 @@ async def get_session(
     if not user:
         raise HTTPException(401, "Unauthorized")
 
-    with _apts_lock:
-        _reload_appointments()
-        apt = _appointments.get(apt_id)
-        if not apt:
-            raise HTTPException(404, "Appointment not found")
+    apt = _db.get_apt(apt_id)
+    if not apt:
+        raise HTTPException(404, "Appointment not found")
 
     uid = user["id"]
-    if uid != apt.get("client_id") and uid != apt.get("enp_id"):
+    _u_email = (user.get("email") or "").lower().strip()
+    _ok = (uid == apt.get("client_id") or uid == apt.get("enp_id")
+           or ((apt.get("client_id") or "").startswith("guest:")
+               and (apt.get("client_email") or "").lower().strip() == _u_email)
+           or any((p.get("email") or "").lower() == _u_email
+                  for p in apt.get("session_participants", [])))
+    if not _ok:
         raise HTTPException(403, "Not your appointment")
 
     # Build accepted participant email list: ENP + Client + accepted invited participants
@@ -3586,20 +3616,17 @@ async def end_session(
     if user.get("role") != "attorney":
         raise HTTPException(403, "Only ENPs can end sessions")
 
-    with _apts_lock:
-        _reload_appointments()
-        apt = _appointments.get(apt_id)
-        if not apt:
-            raise HTTPException(404, "Appointment not found")
-        if apt.get("enp_id") != user["id"]:
-            raise HTTPException(403, "Not your appointment")
+    apt = _db.get_apt(apt_id)
+    if not apt:
+        raise HTTPException(404, "Appointment not found")
+    if apt.get("enp_id") != user["id"]:
+        raise HTTPException(403, "Not your appointment")
 
-        now_iso = _dt.now(_tz.utc).isoformat()
-        apt["session_status"]   = "ended"
-        apt["session_ended_at"] = now_iso
-        apt["updated_at"]       = now_iso
-        _appointments[apt_id]   = apt
-        _save_appointments()
+    now_iso = _dt.now(_tz.utc).isoformat()
+    apt["session_status"]   = "ended"
+    apt["session_ended_at"] = now_iso
+    apt["updated_at"]       = now_iso
+    _db.save_apt(apt)
 
     # Background: populate notarial registry — run immediately + aggressive retries
     import threading as _t_endsession
@@ -3666,9 +3693,7 @@ async def start_recording(
     if user.get("role") != "attorney":
         raise HTTPException(403, "Only the ENP can start recording")
 
-    with _apts_lock:
-        _reload_appointments()
-        apt = _appointments.get(apt_id)
+    apt = _db.get_apt(apt_id)
     if not apt:
         raise HTTPException(404, "Appointment not found")
     if apt.get("enp_id") != user["id"]:
@@ -3722,11 +3747,11 @@ async def start_recording(
         if not egress_id:
             raise HTTPException(422, 'LiveKit SDK returned no egress_id')
 
-        with _apts_lock:
-            _reload_appointments()
-            _appointments[apt_id]['egress_id'] = egress_id
-            _appointments[apt_id]['recording_started_at'] = _dt.now(_tz.utc).isoformat()
-            _save_appointments()
+        _rec_apt = _db.get_apt(apt_id)
+        if _rec_apt:
+            _rec_apt['egress_id'] = egress_id
+            _rec_apt['recording_started_at'] = _dt.now(_tz.utc).isoformat()
+            _db.save_apt(_rec_apt)
         return {'success': True, 'egress_id': egress_id, 'room_name': room_name}
 
     except ImportError as _ie:
@@ -3765,11 +3790,11 @@ async def start_recording(
         raise HTTPException(502, f"No egress_id returned: {str(_resp)[:200]}")
 
     # Save egress_id to appointment
-    with _apts_lock:
-        _reload_appointments()
-        _appointments[apt_id]["egress_id"] = egress_id
-        _appointments[apt_id]["recording_started_at"] = _dt.now(_tz.utc).isoformat()
-        _save_appointments()
+    _rec_apt2 = _db.get_apt(apt_id)
+    if _rec_apt2:
+        _rec_apt2["egress_id"] = egress_id
+        _rec_apt2["recording_started_at"] = _dt.now(_tz.utc).isoformat()
+        _db.save_apt(_rec_apt2)
 
     return {"success": True, "egress_id": egress_id, "room_name": room_name}
 
@@ -3789,9 +3814,7 @@ async def stop_recording(
     if user.get("role") != "attorney":
         raise HTTPException(403, "Only the ENP can stop recording")
 
-    with _apts_lock:
-        _reload_appointments()
-        apt = _appointments.get(apt_id)
+    apt = _db.get_apt(apt_id)
     if not apt:
         raise HTTPException(404, "Appointment not found")
 
@@ -3826,12 +3849,12 @@ async def stop_recording(
             raise HTTPException(_he.code, f"LiveKit Egress stop error: {_err[:300]}")
 
     # Clear egress_id
-    with _apts_lock:
-        _reload_appointments()
-        _appointments[apt_id]["last_egress_id"] = egress_id
-        _appointments[apt_id]["egress_id"] = None
-        _appointments[apt_id]["recording_stopped_at"] = _dt.now(_tz.utc).isoformat()
-        _save_appointments()
+    _stop_apt = _db.get_apt(apt_id)
+    if _stop_apt:
+        _stop_apt["last_egress_id"] = egress_id
+        _stop_apt["egress_id"] = None
+        _stop_apt["recording_stopped_at"] = _dt.now(_tz.utc).isoformat()
+        _db.save_apt(_stop_apt)
 
     return {"success": True, "egress_id": egress_id, "stopped": True}
 
@@ -3849,9 +3872,7 @@ async def recording_status(
     if not user:
         raise HTTPException(401, "Unauthorized")
 
-    with _apts_lock:
-        _reload_appointments()
-        apt = _appointments.get(apt_id)
+    apt = _db.get_apt(apt_id)
     if not apt:
         raise HTTPException(404, "Appointment not found")
 
@@ -3878,9 +3899,7 @@ async def recording_download(
     if user.get("role") != "attorney":
         raise HTTPException(403, "ENP access required")
 
-    with _apts_lock:
-        _reload_appointments()
-        apt = _appointments.get(apt_id)
+    apt = _db.get_apt(apt_id)
     if not apt:
         raise HTTPException(404, "Appointment not found")
     if apt.get("enp_id") != user["id"]:
@@ -3956,9 +3975,7 @@ async def session_upload_document(
     if not user:
         raise HTTPException(401, "Unauthorized")
 
-    with _apts_lock:
-        _reload_appointments()
-        apt = _appointments.get(apt_id)
+    apt = _db.get_apt(apt_id)
     if not apt:
         raise HTTPException(404, "Appointment not found")
     if user["id"] not in (apt.get("enp_id"), apt.get("client_id")):
@@ -4084,15 +4101,13 @@ async def session_upload_document(
         "uploaded_at": _dt.now(_tz.utc).isoformat(),
         "signers": [],
     }
-    with _apts_lock:
-        _reload_appointments()
-        if "session_documents" not in _appointments[apt_id]:
-            _appointments[apt_id]["session_documents"] = []
-        _appointments[apt_id]["session_documents"].append(doc_entry)
-        _appointments[apt_id]["doconchain_project_uuid"] = project_uuid
-        _appointments[apt_id]["doconchain_sign_link"] = sign_link
-        _appointments[apt_id]["updated_at"] = _dt.now(_tz.utc).isoformat()
-        _save_appointments()
+    _doc_apt = _db.get_apt(apt_id)
+    if _doc_apt:
+        _doc_apt.setdefault("session_documents", []).append(doc_entry)
+        _doc_apt["doconchain_project_uuid"] = project_uuid
+        _doc_apt["doconchain_sign_link"] = sign_link
+        _doc_apt["updated_at"] = _dt.now(_tz.utc).isoformat()
+        _db.save_apt(_doc_apt)
 
     return {"success": True, "doc_name": doc_name, "notarization_type": notarization_type,
             "project_uuid": project_uuid, "sign_link": sign_link}
@@ -4114,9 +4129,7 @@ async def update_document_fee(
     if user.get("role") != "attorney":
         raise HTTPException(403, "ENP only")
 
-    with _apts_lock:
-        _reload_appointments()
-        apt = _appointments.get(apt_id)
+    apt = _db.get_apt(apt_id)
     if not apt:
         raise HTTPException(404, "Appointment not found")
     if user["id"] != apt.get("enp_id"):
@@ -4129,19 +4142,17 @@ async def update_document_fee(
     if len(new_fee) > 50:
         raise HTTPException(400, "fee string too long (max 50 chars)")
 
-    with _apts_lock:
-        _reload_appointments()
-        docs = _appointments.get(apt_id, {}).get("session_documents", [])
-        updated = False
-        for doc in docs:
-            if doc.get("project_uuid") == project_uuid or doc.get("doconchain_project_uuid") == project_uuid:
-                doc["fee"] = new_fee
-                updated = True
-                break
-        if not updated:
-            raise HTTPException(404, f"Document with project_uuid={project_uuid} not found")
-        _appointments[apt_id]["updated_at"] = _dt.now(_tz.utc).isoformat()
-        _save_appointments()
+    docs = apt.get("session_documents", [])
+    updated = False
+    for doc in docs:
+        if doc.get("project_uuid") == project_uuid or doc.get("doconchain_project_uuid") == project_uuid:
+            doc["fee"] = new_fee
+            updated = True
+            break
+    if not updated:
+        raise HTTPException(404, f"Document with project_uuid={project_uuid} not found")
+    apt["updated_at"] = _dt.now(_tz.utc).isoformat()
+    _db.save_apt(apt)
 
     return {"success": True, "project_uuid": project_uuid, "fee": new_fee}
 
@@ -4163,9 +4174,7 @@ async def add_document_signer(
     if not user:
         raise HTTPException(401, "Unauthorized")
 
-    with _apts_lock:
-        _reload_appointments()
-        apt = _appointments.get(apt_id)
+    apt = _db.get_apt(apt_id)
     if not apt:
         raise HTTPException(404, "Appointment not found")
     if user["id"] != apt.get("enp_id"):
@@ -4197,10 +4206,8 @@ async def add_document_signer(
         raise HTTPException(409, "Another signer is being added — please retry in a moment.")
     try:
         # Locate document
-        with _apts_lock:
-            _reload_appointments()
-            apt = _appointments.get(apt_id, {})
-            docs = apt.get("session_documents", [])
+        apt = _db.get_apt(apt_id) or {}
+        docs = apt.get("session_documents", [])
         _target_doc = next(
             (d for d in docs if d.get("doconchain_project_uuid") == project_uuid
              or d.get("project_uuid") == project_uuid), None
@@ -4247,12 +4254,11 @@ async def add_document_signer(
                 dc_resp = {"dc_error": _he.code, "detail": _err_body[:200]}
 
         # ── Persist signer locally ────────────────────────────────────────────
-        with _apts_lock:
-            _reload_appointments()
-            for _d in _appointments[apt_id].get("session_documents", []):
+        _sig_apt = _db.get_apt(apt_id)
+        if _sig_apt:
+            for _d in _sig_apt.get("session_documents", []):
                 if _d.get("doconchain_project_uuid") == project_uuid or _d.get("project_uuid") == project_uuid:
-                    if "signers" not in _d:
-                        _d["signers"] = []
+                    _d.setdefault("signers", [])
                     _emap = {s.get("email", "").lower(): s for s in _d["signers"]}
                     if email in _emap:
                         _emap[email].update({
@@ -4268,8 +4274,8 @@ async def add_document_signer(
                             "added_at": _dt.now(_tz.utc).isoformat(),
                         })
                     break
-            _appointments[apt_id]["updated_at"] = _dt.now(_tz.utc).isoformat()
-            _save_appointments()
+            _sig_apt["updated_at"] = _dt.now(_tz.utc).isoformat()
+            _db.save_apt(_sig_apt)
 
     finally:
         try:
@@ -4292,55 +4298,30 @@ async def add_document_signer(
 # NOTARIAL REGISTRY
 # ══════════════════════════════════════════════════════════════════════════════
 
-_REGISTRY_FILE = os.path.join(os.path.dirname(__file__), "data", "notarial_registry.json")
+def _upsert_book(enp_id: str, enp_name: str, roll_no: str, commission_no: str) -> None:
+    """Ensure a registry book entry exists for this ENP (DB-backed, idempotent)."""
+    _db.upsert_registry_book({
+        "enp_id": enp_id,
+        "enp_name": enp_name,
+        "roll_no": roll_no,
+        "commission_no": commission_no,
+        "created_at": _dt.now(_tz.utc).isoformat(),
+    })
 
-def _load_registry() -> dict:
-    """Load notarial registry from disk."""
-    try:
-        with open(_REGISTRY_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            if "books" not in data:
-                data["books"] = {}
-            if "acts" not in data:
-                data["acts"] = []
-            return data
-    except (FileNotFoundError, json.JSONDecodeError):
-        return {"books": {}, "acts": []}
-
-def _save_registry(data: dict) -> None:
-    """Persist notarial registry to disk."""
-    with open(_REGISTRY_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-
-def _upsert_book(registry: dict, enp_id: str, enp_name: str, roll_no: str, commission_no: str) -> None:
-    """Ensure a book entry exists for this ENP."""
-    if enp_id not in registry["books"]:
-        registry["books"][enp_id] = {
-            "enp_id": enp_id,
-            "enp_name": enp_name,
-            "roll_no": roll_no,
-            "commission_no": commission_no,
-            "created_at": _dt.now(_tz.utc).isoformat(),
-        }
-
-def _act_exists(registry: dict, enp_id: str, dc_uuid: str) -> bool:
-    """Check if an act already exists (idempotent)."""
-    for act in registry["acts"]:
-        if act.get("enp_id") == enp_id and act.get("doconchain_project_uuid") == dc_uuid:
-            return True
-    return False
+def _act_exists(enp_id: str, dc_uuid: str) -> bool:
+    """Check if a registry act already exists (DB-backed)."""
+    return _db.act_exists(enp_id, dc_uuid)
 
 def _populate_registry_bg(apt_id: str, enp_id: str) -> None:
     """Background thread: populate registry acts from a completed appointment."""
     try:
         import urllib.request as _ureg, json as _jreg
 
-        # Load appointment
-        with _apts_lock:
-            _reload_appointments()
-            apt = dict(_appointments.get(apt_id, {}))
+        # Load appointment from DB
+        apt = _db.get_apt(apt_id)
         if not apt:
             return
+        apt = dict(apt)
 
         # Get ENP user info
         enp_user = get_user(enp_id)
@@ -4362,224 +4343,242 @@ def _populate_registry_bg(apt_id: str, enp_id: str) -> None:
 
         session_docs = apt.get("session_documents", [])
         if not session_docs:
-            return
+            # QuickSign fallback: apt root may have dc uuid directly
+            _root_uuid = apt.get("doconchain_project_uuid") or apt.get("project_uuid")
+            if _root_uuid:
+                print(f"[Registry] QuickSign fallback: using root dc_uuid={_root_uuid[:12]} apt={apt_id}", flush=True)
+                session_docs = [{
+                    "doconchain_project_uuid": _root_uuid,
+                    "doc_name": apt.get("title") or apt.get("doc_name") or "QuickSign Document",
+                    "notarization_type": apt.get("notarization_type") or "ACKNOWLEDGMENT",
+                    "signers": apt.get("session_participants") or [],
+                }]
+            else:
+                return
 
-        with _registry_lock:
-            registry = _load_registry()
-            _upsert_book(registry, enp_id, enp_name, roll_no, commission_no)
-            changed = False
-
-            for doc in session_docs:
-                dc_uuid = doc.get("doconchain_project_uuid") or doc.get("project_uuid")
-                if not dc_uuid:
-                    continue
-                if _act_exists(registry, enp_id, dc_uuid):
-                    continue
-
-                # Fetch project details — try /api/v2/projects first (works on staging),
-                # fall back to /vault/items for production.
-                item = {}
-                for _dc_url in [
-                    f"{_DC_BASE}/api/v2/projects/{dc_uuid}?user_type=ENTERPRISE_API",
-                    f"{_DC_BASE}/vault/items/{dc_uuid}?user_type=ENTERPRISE_API",
-                ]:
-                    try:
-                        _proj_req = _ureg.Request(
-                            _dc_url,
-                            headers={"Authorization": f"Bearer {dc_token}"},
-                            method="GET",
-                        )
-                        with _ureg.urlopen(_proj_req, timeout=30) as _pr:
-                            _proj_data = _jreg.loads(_pr.read().decode())
-                        _d = _proj_data.get("data") or _proj_data.get("message") or _proj_data
-                        if isinstance(_d, list):
-                            _d = _d[0] if _d else {}
-                        if isinstance(_d, dict) and (_d.get("status") or _d.get("uuid")):
-                            item = _d
-                            break  # got a valid response
-                    except Exception:
-                        continue  # try next URL
-
-                if not item:
-                    continue  # couldn't fetch from either endpoint
-
-                # Normalise status: DC uses "Completed" (capital C) or "completed"
-                dc_status = (item.get("status") or "").lower()
-                completed_at = item.get("completed_at") or item.get("completedAt")
-                if dc_status != "completed" and not completed_at:
-                    print(f'[Registry] Skip apt={apt_id} uuid={dc_uuid[:12]} status={dc_status} (not completed)', flush=True)
-                    continue  # only insert completed documents
-
-                doc_name = (
-                    doc.get("doc_name") or
-                    item.get("name") or item.get("title") or
-                    item.get("project_name") or
-                    doc.get("doc_type", "Document")
-                )
-                dc_ref_number = item.get("reference_number") or item.get("ref_no") or ""
-                executed_at = completed_at or item.get("updated_at") or _dt.now(_tz.utc).isoformat()
-
-                # Signers snapshot: prefer DC vault signers (authoritative), fall back to local
-                dc_vault_signers = item.get("signers") or []
-                local_signers = doc.get("signers") or []
-                dc_signers_snapshot = list(dc_vault_signers) if dc_vault_signers else list(local_signers)
-
-                def _signer_display_name(s):
-                    """Handle both DC vault format (name) and local format (first_name/last_name)."""
-                    if s.get("name"):
-                        return s["name"].strip()
-                    return f"{s.get('first_name','') or ''} {s.get('last_name','') or ''}".strip()
-
-                # Extract principal and witness:
-                # Use local doc.signers roles (Signer=Principal, Approver=Witness) for correct classification
-                # ENP is excluded from both
-                principal_name = ""
-                principal_email = ""
-                witness_name = ""
-                witness_email = ""
-
-                # Build email->role map from local signers
-                local_role_map = {
-                    (s.get("email") or "").lower(): s.get("signer_role", "Signer")
-                    for s in local_signers
-                }
-
-                # Find principal (Signer role, not ENP) and witness (Approver role)
-                for s in local_signers:
-                    s_email = (s.get("email") or "").lower()
-                    if s_email == enp_email:
-                        continue
-                    role = s.get("signer_role", "Signer")
-                    name = _signer_display_name(s)
-                    if role == "Signer" and not principal_email:
-                        principal_name = name
-                        principal_email = s_email
-                    elif role == "Approver" and not witness_email:
-                        witness_name = name
-                        witness_email = s_email
-
-                # Fallback: if local signers empty, use DC vault signers by position
-                if not principal_email:
-                    non_enp_dc = [s for s in dc_vault_signers if (s.get("email") or "").lower() != enp_email]
-                    if non_enp_dc:
-                        p = non_enp_dc[0]
-                        principal_name = _signer_display_name(p)
-                        principal_email = (p.get("email") or "").lower()
-                    if len(non_enp_dc) > 1:
-                        w = non_enp_dc[1]
-                        witness_name = _signer_display_name(w)
-                        witness_email = (w.get("email") or "").lower()
-
-                # Determine act type
-                act_type = (
-                    doc.get("notarization_type") or
-                    doc.get("act_type") or
-                    apt.get("notarization_type") or
-                    "ACKNOWLEDGMENT"
-                ).upper()
-                if "JURAT" in act_type:
-                    act_type = "JURAT"
-                elif "ACKNOWLEDGMENT" in act_type or "ACKNOWLEDGEMENT" in act_type:
-                    act_type = "ACKNOWLEDGMENT"
-                elif "OATH" in act_type:
-                    act_type = "OATH"
-                elif "AFFIDAVIT" in act_type:
-                    act_type = "AFFIDAVIT"
-
-                act = {
-                    "id": str(uuid.uuid4()),
-                    "book_id": enp_id,
-                    "enp_id": enp_id,
-                    "enp_email": enp_email,
-                    "enp_name": enp_name,
-                    "roll_no": roll_no,
-                    "commission_no": commission_no,
-                    "apt_id": apt_id,
-                    "doc_name": doc_name,
-                    "doconchain_project_uuid": dc_uuid,
-                    "act_type": act_type,
-                    "executed_at": executed_at,
-                    "principal_name": principal_name,
-                    "principal_email": principal_email,
-                    "witness_name": witness_name,
-                    "witness_email": witness_email,
-                    "dc_signers_snapshot": dc_signers_snapshot,
-                    "dc_status": dc_status,
-                    "dc_reference_number": dc_ref_number,
-                    "location": "Remote Electronic Notarization",
-                    "sc_synced": False,
-                    "sc_registry_id": None,
-                    "created_at": _dt.now(_tz.utc).isoformat(),
-                }
-                registry["acts"].append(act)
-                changed = True
-                print(f'[Registry] ✅ Added act apt={apt_id} uuid={dc_uuid[:12]} type={act_type} ref={dc_ref_number}', flush=True)
-
-            if changed:
-                _save_registry(registry)
-                print(f'[Registry] Saved registry, total acts={len(registry["acts"])}', flush=True)
-
-            # Retry pending docs up to 3 times (30s intervals) for docs not yet completed
-            pending_docs = [
-                d for d in session_docs
-                if (d.get('doconchain_project_uuid') or d.get('project_uuid'))
-                and not _act_exists(registry, enp_id, d.get('doconchain_project_uuid') or d.get('project_uuid'))
-            ]
-            if pending_docs:
-                import time as _t_retry
-                for _retry in range(20):  # retry for up to 10 minutes
-                    _t_retry.sleep(30)
-                    print(f'[Registry] Retry {_retry+1}/3 for apt {apt_id}', flush=True)
-                    with _registry_lock:
-                        registry = _load_registry()
-                        retry_changed = False
-                        for doc in pending_docs[:]:
-                            dc_uuid2 = doc.get('doconchain_project_uuid') or doc.get('project_uuid')
-                            if not dc_uuid2 or _act_exists(registry, enp_id, dc_uuid2):
-                                pending_docs.remove(doc)
-                                continue
-                            # Refresh token on each retry (may have expired)
-                            try:
-                                dc_token = _get_dc_token(email=enp_email)
-                            except Exception:
-                                pass  # use existing token if refresh fails
-                            try:
-                                _ru2 = f"{_DC_BASE}/api/v2/projects/{dc_uuid2}?user_type=ENTERPRISE_API"
-                                _rreq2 = _ureg.Request(_ru2, headers={'Authorization': f'Bearer {dc_token}'}, method='GET')
-                                with _ureg.urlopen(_rreq2, timeout=20) as _rr2:
-                                    _ri2 = _jreg.loads(_rr2.read().decode())
-                                _rd2 = _ri2.get('data') or _ri2
-                                _rstat2 = (_rd2.get('status') or '').lower()
-                                _rcomp2 = _rd2.get('completed_at')
-                                if _rstat2 == 'completed' or _rcomp2:
-                                    print(f'[Registry] Retry {_retry+1}: {dc_uuid2} now completed', flush=True)
-                                    # Build and insert act (same logic as above — simplified)
-                                    _ra2 = {
-                                        'id': str(uuid.uuid4()), 'book_id': enp_id, 'enp_id': enp_id,
-                                        'enp_email': enp_email, 'enp_name': enp_name, 'roll_no': roll_no,
-                                        'commission_no': commission_no, 'apt_id': apt_id,
-                                        'doc_name': doc.get('doc_name') or _rd2.get('name') or 'Document',
-                                        'doconchain_project_uuid': dc_uuid2,
-                                        'act_type': (doc.get('notarization_type') or apt.get('notarization_type') or 'ACKNOWLEDGMENT').upper(),
-                                        'executed_at': _rcomp2 or _dt.now(_tz.utc).isoformat(),
-                                        'principal_name': principal_name, 'principal_email': principal_email,
-                                        'witness_name': witness_name, 'witness_email': witness_email,
-                                        'dc_signers_snapshot': _rd2.get('signers') or [],
-                                        'dc_status': _rstat2,
-                                        'dc_reference_number': _rd2.get('reference_number') or '',
-                                        'location': 'Remote Electronic Notarization',
-                                        'sc_synced': False, 'sc_registry_id': None,
-                                        'created_at': _dt.now(_tz.utc).isoformat(),
-                                    }
-                                    registry['acts'].append(_ra2)
-                                    retry_changed = True
-                                    pending_docs.remove(doc)
-                            except Exception as _re2:
-                                print(f'[Registry] Retry error: {_re2}', flush=True)
-                        if retry_changed:
-                            _save_registry(registry)
-                    if not pending_docs:
+        # ── Fetch all DC project data OUTSIDE the lock (prevents deadlock) ──────
+        # The _registry_lock must not be held during network I/O
+        _dc_items = {}  # dc_uuid -> fetched DC project data
+        for doc in session_docs:
+            dc_uuid = doc.get("doconchain_project_uuid") or doc.get("project_uuid")
+            if not dc_uuid:
+                continue
+            # Quick check: already in registry?
+            if _act_exists(enp_id, dc_uuid):
+                continue
+            item = {}
+            for _dc_url in [
+                f"{_DC_BASE}/vault/items/{dc_uuid}?user_type=ENTERPRISE_API",
+                f"{_DC_BASE}/api/v2/projects/{dc_uuid}?user_type=ENTERPRISE_API",
+            ]:
+                try:
+                    _proj_req = _ureg.Request(
+                        _dc_url,
+                        headers={"Authorization": f"Bearer {dc_token}"},
+                        method="GET",
+                    )
+                    with _ureg.urlopen(_proj_req, timeout=15) as _pr:
+                        _proj_data = _jreg.loads(_pr.read().decode())
+                    _d = _proj_data.get("data") or _proj_data.get("message") or _proj_data
+                    if isinstance(_d, list):
+                        _d = _d[0] if _d else {}
+                    if isinstance(_d, dict) and (_d.get("status") or _d.get("uuid")):
+                        item = _d
                         break
+                except Exception:
+                    continue
+            if item:
+                _dc_items[dc_uuid] = item
+
+        # ── Write phase: upsert book + acts into DB ───────────────────────────
+        _upsert_book(enp_id, enp_name, roll_no, commission_no)
+        n_added = 0
+
+        for doc in session_docs:
+            dc_uuid = doc.get("doconchain_project_uuid") or doc.get("project_uuid")
+            if not dc_uuid:
+                continue
+            if _act_exists(enp_id, dc_uuid):
+                continue
+
+            item = _dc_items.get(dc_uuid)
+            if not item:
+                continue
+
+            # Normalise status: DC uses "Completed" (capital C) or "completed"
+            dc_status = (item.get("status") or "").lower()
+            completed_at = item.get("completed_at") or item.get("completedAt")
+            # Vault returns status="completed"; projects returns "Completed" or "to sign"
+            # Also check if vault item has a signed file URL (top-level url = signed doc)
+            _has_signed_file = bool(item.get("url") and item.get("status", "").lower() == "completed")
+            if dc_status != "completed" and not completed_at and not _has_signed_file:
+                print(f'[Registry] Skip apt={apt_id} uuid={dc_uuid[:12]} status={dc_status} (not completed)', flush=True)
+                continue  # only insert completed documents
+
+            doc_name = (
+                doc.get("doc_name") or
+                item.get("name") or item.get("title") or
+                item.get("project_name") or
+                doc.get("doc_type", "Document")
+            )
+            dc_ref_number = item.get("reference_number") or item.get("ref_no") or ""
+            executed_at = completed_at or item.get("updated_at") or _dt.now(_tz.utc).isoformat()
+
+            # Signers snapshot: prefer DC vault signers (authoritative), fall back to local
+            dc_vault_signers = item.get("signers") or []
+            local_signers = doc.get("signers") or []
+            dc_signers_snapshot = list(dc_vault_signers) if dc_vault_signers else list(local_signers)
+
+            def _signer_display_name(s):
+                """Handle both DC vault format (name) and local format (first_name/last_name)."""
+                if s.get("name"):
+                    return s["name"].strip()
+                return f"{s.get('first_name','') or ''} {s.get('last_name','') or ''}".strip()
+
+            # Extract principal and witness:
+            # Use local doc.signers roles (Signer=Principal, Approver=Witness) for correct classification
+            # ENP is excluded from both
+            principal_name = ""
+            principal_email = ""
+            witness_name = ""
+            witness_email = ""
+
+            # Build email->role map from local signers
+            local_role_map = {
+                (s.get("email") or "").lower(): s.get("signer_role", "Signer")
+                for s in local_signers
+            }
+
+            # Find principal (Signer role, not ENP) and witness (Approver role)
+            for s in local_signers:
+                s_email = (s.get("email") or "").lower()
+                if s_email == enp_email:
+                    continue
+                role = s.get("signer_role", "Signer")
+                name = _signer_display_name(s)
+                if role == "Signer" and not principal_email:
+                    principal_name = name
+                    principal_email = s_email
+                elif role == "Approver" and not witness_email:
+                    witness_name = name
+                    witness_email = s_email
+
+            # Fallback: if local signers empty, use DC vault signers by position
+            if not principal_email:
+                non_enp_dc = [s for s in dc_vault_signers if (s.get("email") or "").lower() != enp_email]
+                if non_enp_dc:
+                    p = non_enp_dc[0]
+                    principal_name = _signer_display_name(p)
+                    principal_email = (p.get("email") or "").lower()
+                if len(non_enp_dc) > 1:
+                    w = non_enp_dc[1]
+                    witness_name = _signer_display_name(w)
+                    witness_email = (w.get("email") or "").lower()
+
+            # Determine act type
+            act_type = (
+                doc.get("notarization_type") or
+                doc.get("act_type") or
+                apt.get("notarization_type") or
+                "ACKNOWLEDGMENT"
+            ).upper()
+            if "JURAT" in act_type:
+                act_type = "JURAT"
+            elif "ACKNOWLEDGMENT" in act_type or "ACKNOWLEDGEMENT" in act_type:
+                act_type = "ACKNOWLEDGMENT"
+            elif "OATH" in act_type:
+                act_type = "OATH"
+            elif "AFFIDAVIT" in act_type:
+                act_type = "AFFIDAVIT"
+
+            act = {
+                "id": str(uuid.uuid4()),
+                "book_id": enp_id,
+                "enp_id": enp_id,
+                "enp_email": enp_email,
+                "enp_name": enp_name,
+                "roll_no": roll_no,
+                "commission_no": commission_no,
+                "apt_id": apt_id,
+                "doc_name": doc_name,
+                "doconchain_project_uuid": dc_uuid,
+                "act_type": act_type,
+                "executed_at": executed_at,
+                "principal_name": principal_name,
+                "principal_email": principal_email,
+                "witness_name": witness_name,
+                "witness_email": witness_email,
+                "dc_signers_snapshot": dc_signers_snapshot,
+                "dc_status": dc_status,
+                "dc_reference_number": dc_ref_number,
+                "location": "Remote Electronic Notarization",
+                "sc_synced": False,
+                "sc_registry_id": None,
+                "created_at": _dt.now(_tz.utc).isoformat(),
+            }
+            _db.upsert_registry_act(act)
+            n_added += 1
+            print(f'[Registry] ✅ Added act apt={apt_id} uuid={dc_uuid[:12]} type={act_type} ref={dc_ref_number}', flush=True)
+
+        if n_added:
+            print(f'[Registry] Saved {n_added} act(s) for apt={apt_id}', flush=True)
+
+        # Retry pending docs (not yet completed at time of session-end)
+        pending_docs = [
+            d for d in session_docs
+            if (d.get('doconchain_project_uuid') or d.get('project_uuid'))
+            and not _act_exists(enp_id, d.get('doconchain_project_uuid') or d.get('project_uuid'))
+        ]
+        if pending_docs:
+            import time as _t_retry
+            for _retry in range(20):  # retry for up to 10 minutes
+                _t_retry.sleep(30)
+                print(f'[Registry] Retry {_retry+1}/20 for apt {apt_id}', flush=True)
+                retry_added = False
+                for doc in pending_docs[:]:
+                    dc_uuid2 = doc.get('doconchain_project_uuid') or doc.get('project_uuid')
+                    if not dc_uuid2 or _act_exists(enp_id, dc_uuid2):
+                        pending_docs.remove(doc)
+                        continue
+                    # Refresh token on each retry (may have expired)
+                    try:
+                        dc_token = _get_dc_token(email=enp_email)
+                    except Exception:
+                        pass  # use existing token if refresh fails
+                    try:
+                        _ru2 = f"{_DC_BASE}/api/v2/projects/{dc_uuid2}?user_type=ENTERPRISE_API"
+                        _rreq2 = _ureg.Request(_ru2, headers={'Authorization': f'Bearer {dc_token}'}, method='GET')
+                        with _ureg.urlopen(_rreq2, timeout=20) as _rr2:
+                            _ri2 = _jreg.loads(_rr2.read().decode())
+                        _rd2 = _ri2.get('data') or _ri2
+                        _rstat2 = (_rd2.get('status') or '').lower()
+                        _rcomp2 = _rd2.get('completed_at')
+                        if _rstat2 == 'completed' or _rcomp2:
+                            print(f'[Registry] Retry {_retry+1}: {dc_uuid2} now completed', flush=True)
+                            _ra2 = {
+                                'id': str(uuid.uuid4()), 'book_id': enp_id, 'enp_id': enp_id,
+                                'enp_email': enp_email, 'enp_name': enp_name, 'roll_no': roll_no,
+                                'commission_no': commission_no, 'apt_id': apt_id,
+                                'doc_name': doc.get('doc_name') or _rd2.get('name') or 'Document',
+                                'doconchain_project_uuid': dc_uuid2,
+                                'act_type': (doc.get('notarization_type') or apt.get('notarization_type') or 'ACKNOWLEDGMENT').upper(),
+                                'executed_at': _rcomp2 or _dt.now(_tz.utc).isoformat(),
+                                'principal_name': principal_name, 'principal_email': principal_email,
+                                'witness_name': witness_name, 'witness_email': witness_email,
+                                'dc_signers_snapshot': _rd2.get('signers') or [],
+                                'dc_status': _rstat2,
+                                'dc_reference_number': _rd2.get('reference_number') or '',
+                                'location': 'Remote Electronic Notarization',
+                                'sc_synced': False, 'sc_registry_id': None,
+                                'created_at': _dt.now(_tz.utc).isoformat(),
+                            }
+                            _db.upsert_registry_act(_ra2)
+                            retry_added = True
+                            pending_docs.remove(doc)
+                    except Exception as _re2:
+                        print(f'[Registry] Retry error: {_re2}', flush=True)
+                if not pending_docs:
+                    break
 
     except Exception as _bg_err:
         print(f'[Registry] populate error for apt {apt_id}: {_bg_err}', flush=True)
@@ -4626,14 +4625,12 @@ async def registry_sync_all(
 
     enp_id = user["id"]
     import threading as _tsyncall
-    with _apts_lock:
-        _reload_appointments()
-        ended_apts = [
-            aid for aid, apt in _appointments.items()
-            if apt.get("session_status") == "ended"
-            and apt.get("enp_id") == enp_id
-            and apt.get("session_documents")
-        ]
+    ended_apts = [
+        a["apt_id"] for a in _db.list_apts()
+        if a.get("session_status") == "ended"
+        and a.get("enp_id") == enp_id
+        and a.get("session_documents")
+    ]
 
     if not ended_apts:
         return {"success": True, "message": "No ended sessions found", "queued": 0}
@@ -4667,10 +4664,7 @@ async def registry_list_acts(
         raise HTTPException(403, "ENP access required")
 
     enp_id = user["id"]
-    with _registry_lock:
-        registry = _load_registry()
-
-    acts = [a for a in registry["acts"] if a.get("enp_id") == enp_id]
+    acts = _db.list_acts(enp_id=enp_id)
 
     # Filters
     if act_type:
@@ -4711,9 +4705,7 @@ async def registry_list_acts(
         # Get fee from appointment session_documents
         if not _a.get("fee"):
             try:
-                with _apts_lock:
-                    _reload_appointments()
-                    _apt_doc = _appointments.get(_a.get("apt_id") or "")
+                _apt_doc = _db.get_apt(_a.get("apt_id") or "")
                 if _apt_doc:
                     for _doc in _apt_doc.get("session_documents", []):
                         if (_doc.get("doconchain_project_uuid") or _doc.get("project_uuid")) == _a.get("doconchain_project_uuid"):
@@ -4756,9 +4748,7 @@ async def registry_sync_sc(
         raise HTTPException(403, "ENP access required")
 
     enp_id = user["id"]
-    with _registry_lock:
-        registry = _load_registry()
-        act = next((a for a in registry["acts"] if a["id"] == act_id and a["enp_id"] == enp_id), None)
+    act = _db.get_act_by_id(act_id, enp_id=enp_id)
     if not act:
         raise HTTPException(404, "Act not found")
     if act.get("sc_synced"):
@@ -4781,18 +4771,15 @@ async def registry_sync_sc(
     if not all([_SC_API_URL, _SC_USERNAME, _SC_PASSWORD]):
         nrid = f"NRID-{act_id[:8].upper()}"
         nrn  = f"NRN-{act_id[:8].upper()}"
-        with _registry_lock:
-            registry = _load_registry()
-            for _a in registry["acts"]:
-                if _a["id"] == act_id:
-                    _a["sc_synced"]    = True
-                    _a["sc_registry_id"] = nrid
-                    _a["nrid"]         = nrid
-                    _a["nrn"]          = nrn
-                    _a["sc_synced_at"] = _dt.now(_tz.utc).isoformat()
-                    _a["sc_note"]      = "stub — SUPREME_COURT_* env vars not set"
-                    break
-            _save_registry(registry)
+        act_upd = _db.get_act_by_id(act_id)
+        if act_upd:
+            act_upd["sc_synced"]      = True
+            act_upd["sc_registry_id"] = nrid
+            act_upd["nrid"]           = nrid
+            act_upd["nrn"]            = nrn
+            act_upd["sc_synced_at"]   = _dt.now(_tz.utc).isoformat()
+            act_upd["sc_note"]        = "stub — SUPREME_COURT_* env vars not set"
+            _db.upsert_registry_act(act_upd)
         return {"success": True, "stub": True, "sc_registry_id": nrid, "nrid": nrid, "nrn": nrn,
                 "note": "Stub NRID — configure SUPREME_COURT_* env vars for real SC sync"}
 
@@ -4933,21 +4920,18 @@ async def registry_sync_sc(
         # breaking the frontend JSON parse. 422 passes through as JSON.
         raise HTTPException(422, f"Supreme Court sync failed: {str(_sc_err)[:400]}")
 
-    with _registry_lock:
-        registry = _load_registry()
-        for _a in registry["acts"]:
-            if _a["id"] == act_id:
-                _a["sc_synced"]      = True
-                _a["sc_registry_id"] = nrid
-                _a["nrid"]           = nrid
-                _a["nrn"]            = nrn
-                _a["sc_synced_at"]   = _dt.now(_tz.utc).isoformat()
-                _a["sc_response"]    = sc_resp
-                if pdf_upload_result:
-                    _a["sc_pdf_uploaded"] = True
-                    _a["sc_pdf_response"] = pdf_upload_result
-                break
-        _save_registry(registry)
+    act_upd = _db.get_act_by_id(act_id)
+    if act_upd:
+        act_upd["sc_synced"]      = True
+        act_upd["sc_registry_id"] = nrid
+        act_upd["nrid"]           = nrid
+        act_upd["nrn"]            = nrn
+        act_upd["sc_synced_at"]   = _dt.now(_tz.utc).isoformat()
+        act_upd["sc_response"]    = sc_resp
+        if pdf_upload_result:
+            act_upd["sc_pdf_uploaded"] = True
+            act_upd["sc_pdf_response"] = pdf_upload_result
+        _db.upsert_registry_act(act_upd)
 
     return {
         "success":        True,
@@ -4957,6 +4941,46 @@ async def registry_sync_sc(
         "pdf_uploaded":   bool(pdf_upload_result),
     }
 
+
+
+# ─── GET /api/pdf-proxy ───────────────────────────────────────────────────────
+@app.get("/api/pdf-proxy")
+async def pdf_proxy(
+    url: str,
+    authorization: Optional[str] = Header(None),
+    ql_access: Optional[str] = Cookie(default=None),
+):
+    """Proxy a remote PDF URL through our server so iframes can embed it."""
+    from fastapi.responses import StreamingResponse
+    import urllib.request as _uproxy
+    user = get_current_user(authorization, ql_access)
+    if not user:
+        raise HTTPException(401, "Unauthorized")
+    if not url or not url.startswith("https://"):
+        raise HTTPException(400, "Invalid URL")
+    # Only allow DoconChain domains
+    from urllib.parse import urlparse as _uprx_parse
+    _host = _uprx_parse(url).hostname or ""
+    if "doconchain" not in _host and "amazonaws" not in _host and "s3." not in _host:
+        raise HTTPException(403, "Domain not allowed")
+    try:
+        req = _uproxy.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        resp = _uproxy.urlopen(req, timeout=30)
+        content = resp.read()
+        ct = resp.headers.get("Content-Type", "application/pdf")
+        import io
+        return StreamingResponse(
+            io.BytesIO(content),
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": "inline",
+                "Content-Length": str(len(content)),
+                "X-Frame-Options": "SAMEORIGIN",
+                "Cache-Control": "private, max-age=300",
+            }
+        )
+    except Exception as e:
+        raise HTTPException(502, f"Could not fetch PDF: {str(e)[:200]}")
 
 # ─── GET /api/registry/acts/{act_id}/document ─────────────────────────────────────────────
 
@@ -4974,9 +4998,7 @@ async def registry_get_document(
         raise HTTPException(403, "ENP access required")
 
     enp_id = user["id"]
-    with _registry_lock:
-        registry = _load_registry()
-        act = next((a for a in registry["acts"] if a["id"] == act_id and a["enp_id"] == enp_id), None)
+    act = _db.get_act_by_id(act_id, enp_id=enp_id)
     if not act:
         raise HTTPException(404, "Act not found")
 
@@ -5011,16 +5033,39 @@ async def registry_get_document(
 
     if dc_uuid:
         def _fetch_dc_vault():
-            enp_user = get_user(enp_id)
-            enp_email = (enp_user or {}).get("email", "") if enp_user else ""
-            # Use GET /api/v2/projects/{uuid} — returns files[] with signed PDFs
+            enp_email = (user.get("email") or "").lower().strip()
+            # Try vault endpoint FIRST — returns completed signed document with file_url
+            # /vault/items/{uuid} is for COMPLETED projects with signed PDFs
+            # /api/v2/projects/{uuid} is for in-progress projects
             for _email in [enp_email, _DC_EMAIL]:
                 if not _email:
                     continue
                 try:
                     tok = _get_dc_token(email=_email)
-                    url = f"{_DC_BASE}/api/v2/projects/{dc_uuid}?user_type=ENTERPRISE_API"
-                    req = _ureq_doc.Request(url, headers={
+                    # Primary: vault endpoint (completed signed document)
+                    vault_url = f"{_DC_BASE}/vault/items/{dc_uuid}?user_type=ENTERPRISE_API"
+                    req = _ureq_doc.Request(vault_url, headers={
+                        "Authorization": f"Bearer {tok}",
+                        "Accept": "application/json",
+                    })
+                    with _ureq_doc.urlopen(req, timeout=20) as r:
+                        resp = _json_doc.loads(r.read().decode())
+                    data = resp.get("data") or resp
+                    if data and (data.get("uuid") or data.get("status")):
+                        data["_source"] = "vault"
+                        print(f"[DC] vault/items/{dc_uuid[:12]} status={data.get('status')} url={'yes' if data.get('url') else 'no'}", flush=True)
+                        return data
+                except Exception as _e:
+                    print(f"[DC] vault/items/{dc_uuid[:12]} with {_email} failed: {_e}", flush=True)
+
+            # Fallback: projects endpoint (in-progress, may have partial files)
+            for _email in [enp_email, _DC_EMAIL]:
+                if not _email:
+                    continue
+                try:
+                    tok = _get_dc_token(email=_email)
+                    proj_url = f"{_DC_BASE}/api/v2/projects/{dc_uuid}?user_type=ENTERPRISE_API"
+                    req = _ureq_doc.Request(proj_url, headers={
                         "Authorization": f"Bearer {tok}",
                         "Accept": "application/json",
                     })
@@ -5028,9 +5073,10 @@ async def registry_get_document(
                         resp = _json_doc.loads(r.read().decode())
                     data = resp.get("data") or resp
                     if data and data.get("uuid"):
+                        data["_source"] = "projects"
                         return data
                 except Exception as _e:
-                    print(f"[DC] /api/v2/projects/{dc_uuid} with {_email} failed: {_e}", flush=True)
+                    print(f"[DC] /api/v2/projects/{dc_uuid[:12]} with {_email} failed: {_e}", flush=True)
                     continue
             return None
 
@@ -5042,36 +5088,41 @@ async def registry_get_document(
                 pass
             vault_item = await loop.run_in_executor(None, _fetch_dc_vault)
             if vault_item:
-                # Build download/view links from vault item
-                dc_view_url = f"{_DC_APP_URL}/sign/{dc_uuid}"
-                # If vault item has contents (files), expose them
-                # /api/v2/projects returns files[] with type field
-                # Priority: 'Document Completed' > 'Original With Signature And QR' > top-level url
-                _priority = ['Document Completed', 'Original With Signature And QR', 'Original']
-                _files_by_type = {}
-                for _f in (vault_item.get("files") or []):
-                    _ftype = _f.get("type") or ""
-                    _furl  = _f.get("url") or ""
-                    _fname = _f.get("file_name") or vault_item.get("file_name") or act.get("doc_name") or "Document"
-                    if _furl and _ftype:
-                        _files_by_type[_ftype] = {"fileName": _fname, "downloadUrl": _furl}
-                for _ptype in _priority:
-                    if _ptype in _files_by_type:
-                        dc_files.append(_files_by_type[_ptype])
-                        break
-                # Fallback: top-level url (also the signed PDF)
-                if not dc_files and vault_item.get("url"):
-                    dc_files.append({
-                        "fileName": vault_item.get("file_name") or act.get("doc_name") or "Notarized Document",
-                        "downloadUrl": vault_item["url"]
-                    })
-                # Fallback: expose the view link as a file entry
-                if not dc_files:
-                    dc_files.append({
-                        "fileName": act.get("doc_name", "Notarized Document"),
-                        "downloadUrl": dc_view_url,
-                        "source": "doconchain_view",
-                    })
+                _source = vault_item.get("_source", "projects")
+                dc_view_url = None
+
+                if _source == "vault":
+                    # Vault response: top-level url = signed completed PDF
+                    # files[] = [{file_id, file_name, file_url}]
+                    _doc_name = vault_item.get("file_name") or vault_item.get("name") or act.get("doc_name") or "Notarized Document"
+                    # Top-level url is the primary signed document
+                    if vault_item.get("url"):
+                        dc_files.append({"fileName": _doc_name, "downloadUrl": vault_item["url"], "source": "vault-completed"})
+                    # Also check files array (vault format uses file_url)
+                    for _vf in (vault_item.get("files") or []):
+                        _furl = _vf.get("file_url") or _vf.get("url") or ""
+                        _fname = _vf.get("file_name") or _doc_name
+                        if _furl and not dc_files:
+                            dc_files.append({"fileName": _fname, "downloadUrl": _furl, "source": "vault-file"})
+                else:
+                    # Projects response: files[] with type field
+                    _priority = ['Document Completed', 'Original With Signature And QR', 'Original']
+                    _files_by_type = {}
+                    for _f in (vault_item.get("files") or []):
+                        _ftype = _f.get("type") or ""
+                        _furl  = _f.get("url") or ""
+                        _fname = _f.get("file_name") or vault_item.get("file_name") or act.get("doc_name") or "Document"
+                        if _furl and _ftype:
+                            _files_by_type[_ftype] = {"fileName": _fname, "downloadUrl": _furl}
+                    for _ptype in _priority:
+                        if _ptype in _files_by_type:
+                            dc_files.append(_files_by_type[_ptype])
+                            break
+                    if not dc_files and vault_item.get("url"):
+                        dc_files.append({
+                            "fileName": vault_item.get("file_name") or act.get("doc_name") or "Document",
+                            "downloadUrl": vault_item["url"]
+                        })
         except Exception as _dc_err:
             print(f"[DC] vault processing failed (non-fatal): {_dc_err}", flush=True)
 
@@ -5193,19 +5244,9 @@ async def admin_stats(request: Request):
     if not admin:
         raise HTTPException(401, "Unauthorized")
 
-    _users_path = os.path.join(os.path.dirname(__file__), "data", "users.json")
-    try:
-        with open(_users_path, "r", encoding="utf-8") as f:
-            all_users: dict = json.load(f)
-    except Exception:
-        all_users = {}
-
-    with _apts_lock:
-        _reload_appointments()
-        all_apts = dict(_appointments)
-
-    with _registry_lock:
-        reg = _load_registry()
+    all_users = _db.list_users()
+    all_apts = _db.list_apts()
+    total_acts = len(_db.list_acts())
 
     today = _admin_dt.now(_admin_tz.utc).date().isoformat()
 
@@ -5214,7 +5255,7 @@ async def admin_stats(request: Request):
     new_users_today = 0
     pending_enp_commission = 0
 
-    for u in all_users.values():
+    for u in all_users:
         r = u.get("role", "")
         if r in by_role:
             by_role[r] += 1
@@ -5225,9 +5266,8 @@ async def admin_stats(request: Request):
             pending_enp_commission += 1
 
     total_apts = len(all_apts)
-    ended_apts = sum(1 for a in all_apts.values() if a.get("session_status") == "ended")
-    new_apts_today = sum(1 for a in all_apts.values() if (a.get("created_at") or "")[:10] == today)
-    total_acts = len(reg.get("acts", []))
+    ended_apts = sum(1 for a in all_apts if a.get("session_status") == "ended")
+    new_apts_today = sum(1 for a in all_apts if (a.get("created_at") or "")[:10] == today)
 
     return {
         "total_users": total_users,
@@ -5255,14 +5295,7 @@ async def admin_list_users(
     if not admin:
         raise HTTPException(401, "Unauthorized")
 
-    _users_path = os.path.join(os.path.dirname(__file__), "data", "users.json")
-    try:
-        with open(_users_path, "r", encoding="utf-8") as f:
-            all_users: dict = json.load(f)
-    except Exception:
-        all_users = {}
-
-    users = list(all_users.values())
+    users = _db.list_users()
 
     if role:
         users = [u for u in users if u.get("role") == role]
@@ -5317,19 +5350,12 @@ async def admin_set_role(user_id: str, req: _SetRoleReq, request: Request):
     if req.role not in ("attorney", "client", "admin"):
         raise HTTPException(400, "role must be attorney, client, or admin")
 
-    _users_path = os.path.join(os.path.dirname(__file__), "data", "users.json")
-    try:
-        with open(_users_path, "r", encoding="utf-8") as f:
-            all_users: dict = json.load(f)
-    except Exception:
-        all_users = {}
-
-    if user_id not in all_users:
+    target = _db.get_user(user_id)
+    if not target:
         raise HTTPException(404, "User not found")
 
-    all_users[user_id]["role"] = req.role
-    with open(_users_path, "w", encoding="utf-8") as f:
-        json.dump(all_users, f, indent=2, ensure_ascii=False)
+    target["role"] = req.role
+    _db.upsert_user(target)
 
     return {"ok": True, "user_id": user_id, "role": req.role}
 
@@ -5348,19 +5374,11 @@ async def admin_list_appointments(
     if not admin:
         raise HTTPException(401, "Unauthorized")
 
-    _users_path = os.path.join(os.path.dirname(__file__), "data", "users.json")
-    try:
-        with open(_users_path, "r", encoding="utf-8") as f:
-            all_users: dict = json.load(f)
-    except Exception:
-        all_users = {}
-
-    with _apts_lock:
-        _reload_appointments()
-        all_apts = list(_appointments.values())
+    _users_map = {u["id"]: u for u in _db.list_users()}
+    all_apts = _db.list_apts()
 
     def _enp_name(enp_id: str) -> str:
-        u = all_users.get(enp_id)
+        u = _users_map.get(enp_id)
         if u:
             return f"{u.get('first_name','')} {u.get('last_name','')}".strip()
         return enp_id[:8] if enp_id else ""
@@ -5420,10 +5438,7 @@ async def admin_list_registry(
     if not admin:
         raise HTTPException(401, "Unauthorized")
 
-    with _registry_lock:
-        reg = _load_registry()
-
-    acts = list(reg.get("acts", []))
+    acts = _db.list_acts()
 
     if act_type:
         acts = [a for a in acts if a.get("act_type", "").upper() == act_type.upper()]
@@ -5453,28 +5468,6 @@ async def admin_list_registry(
 
 # ── Sub-Organizations ─────────────────────────────────────────────────────────
 # Appended to main.py before `if __name__ == "__main__":`
-
-_SUB_ORGS_FILE = os.path.join(os.path.dirname(__file__), "data", "sub_orgs.json")
-_sub_orgs_lock = threading.Lock()
-
-
-def _load_sub_orgs() -> list:
-    """Load sub-orgs from disk."""
-    try:
-        with open(_SUB_ORGS_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            return data if isinstance(data, list) else []
-    except (FileNotFoundError, json.JSONDecodeError):
-        return []
-
-
-def _save_sub_orgs(data: list) -> None:
-    """Persist sub-orgs to disk atomically."""
-    tmp = _SUB_ORGS_FILE + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-    os.replace(tmp, _SUB_ORGS_FILE)
-
 
 def _require_attorney_or_admin(request: Request):
     """Return current user if attorney or admin, else raise 401/403.
@@ -5510,13 +5503,8 @@ def _require_attorney_or_admin(request: Request):
 
 
 def _find_user_by_email(email: str):
-    """Find a user by email from in-memory USERS dict."""
-    from onboarding import USERS as _USERS
-    email_lower = email.lower().strip()
-    for uid, u in _USERS.items():
-        if (u.get("email") or "").lower() == email_lower:
-            return dict(u)
-    return None
+    """Find a user by email from the database."""
+    return _db.get_user_by_email(email.lower().strip())
 
 
 class _SubOrgCreateReq(BaseModel):
@@ -5557,8 +5545,7 @@ class _SubOrgCreditTransferReq(BaseModel):
 @app.get("/api/sub-orgs")
 async def list_sub_orgs(request: Request):
     user = _require_attorney_or_admin(request)
-    with _sub_orgs_lock:
-        orgs = _load_sub_orgs()
+    orgs = _db.list_suborgs()
     uid = user["id"]
     role = user.get("role")
     if role == "admin":
@@ -5718,10 +5705,7 @@ async def create_sub_org(
         _dc_provision_error = str(_dc_so_err)
         print(f"[SubOrg] DC provisioning failed (non-fatal): {_dc_so_err}", flush=True)
 
-    with _sub_orgs_lock:
-        orgs = _load_sub_orgs()
-        orgs.append(org)
-        _save_sub_orgs(orgs)
+    _db.save_suborg(org)
 
     result = {"success": True, "id": org["id"], "sub_org": org}
     if _dc_provision_error:
@@ -5736,9 +5720,7 @@ async def create_sub_org(
 @app.get("/api/sub-orgs/{sub_org_id}")
 async def get_sub_org(sub_org_id: str, request: Request):
     user = _require_attorney_or_admin(request)
-    with _sub_orgs_lock:
-        orgs = _load_sub_orgs()
-    org = next((o for o in orgs if o["id"] == sub_org_id), None)
+    org = _db.get_suborg(sub_org_id)
     if not org:
         raise HTTPException(404, "Sub-org not found")
     uid = user["id"]
@@ -5755,30 +5737,28 @@ async def get_sub_org(sub_org_id: str, request: Request):
 @app.patch("/api/sub-orgs/{sub_org_id}")
 async def patch_sub_org(sub_org_id: str, req: _SubOrgPatchReq, request: Request):
     user = _require_attorney_or_admin(request)
-    with _sub_orgs_lock:
-        orgs = _load_sub_orgs()
-        org = next((o for o in orgs if o["id"] == sub_org_id), None)
-        if not org:
-            raise HTTPException(404, "Sub-org not found")
-        uid = user["id"]
-        role = user.get("role")
-        if role != "admin" and org.get("owner_id") != uid:
-            raise HTTPException(403, "Forbidden: only owner or admin can edit")
-        valid_types = ("Department", "Branch", "Division", "Team")
-        if req.name is not None:
-            org["name"] = req.name.strip()
-        if req.address is not None:
-            org["address"] = req.address
-        if req.type is not None and req.type in valid_types:
-            org["type"] = req.type
-        if req.dc_client_key is not None:
-            org["dc_client_key"] = req.dc_client_key
-        if req.dc_client_secret is not None:
-            org["dc_client_secret"] = req.dc_client_secret
-        if req.dc_email is not None:
-            org["dc_email"] = req.dc_email
-        org["updated_at"] = _dt.now(_tz.utc).isoformat()
-        _save_sub_orgs(orgs)
+    org = _db.get_suborg(sub_org_id)
+    if not org:
+        raise HTTPException(404, "Sub-org not found")
+    uid = user["id"]
+    role = user.get("role")
+    if role != "admin" and org.get("owner_id") != uid:
+        raise HTTPException(403, "Forbidden: only owner or admin can edit")
+    valid_types = ("Department", "Branch", "Division", "Team")
+    if req.name is not None:
+        org["name"] = req.name.strip()
+    if req.address is not None:
+        org["address"] = req.address
+    if req.type is not None and req.type in valid_types:
+        org["type"] = req.type
+    if req.dc_client_key is not None:
+        org["dc_client_key"] = req.dc_client_key
+    if req.dc_client_secret is not None:
+        org["dc_client_secret"] = req.dc_client_secret
+    if req.dc_email is not None:
+        org["dc_email"] = req.dc_email
+    org["updated_at"] = _dt.now(_tz.utc).isoformat()
+    _db.save_suborg(org)
     return {"success": True, "sub_org": org}
 
 
@@ -5786,17 +5766,14 @@ async def patch_sub_org(sub_org_id: str, req: _SubOrgPatchReq, request: Request)
 @app.delete("/api/sub-orgs/{sub_org_id}")
 async def delete_sub_org(sub_org_id: str, request: Request):
     user = _require_attorney_or_admin(request)
-    with _sub_orgs_lock:
-        orgs = _load_sub_orgs()
-        org = next((o for o in orgs if o["id"] == sub_org_id), None)
-        if not org:
-            raise HTTPException(404, "Sub-org not found")
-        uid = user["id"]
-        role = user.get("role")
-        if role != "admin" and org.get("owner_id") != uid:
-            raise HTTPException(403, "Forbidden: only owner or admin can delete")
-        orgs = [o for o in orgs if o["id"] != sub_org_id]
-        _save_sub_orgs(orgs)
+    org = _db.get_suborg(sub_org_id)
+    if not org:
+        raise HTTPException(404, "Sub-org not found")
+    uid = user["id"]
+    role = user.get("role")
+    if role != "admin" and org.get("owner_id") != uid:
+        raise HTTPException(403, "Forbidden: only owner or admin can delete")
+    _db.delete_suborg(sub_org_id)
     return {"success": True}
 
 
@@ -5804,9 +5781,7 @@ async def delete_sub_org(sub_org_id: str, request: Request):
 @app.get("/api/sub-orgs/{sub_org_id}/members")
 async def list_sub_org_members(sub_org_id: str, request: Request):
     user = _require_attorney_or_admin(request)
-    with _sub_orgs_lock:
-        orgs = _load_sub_orgs()
-    org = next((o for o in orgs if o["id"] == sub_org_id), None)
+    org = _db.get_suborg(sub_org_id)
     if not org:
         raise HTTPException(404, "Sub-org not found")
     uid = user["id"]
@@ -5823,48 +5798,46 @@ async def add_sub_org_member(sub_org_id: str, req: _SubOrgMemberReq, request: Re
     if req.role not in ("ENP", "Staff"):
         raise HTTPException(400, "role must be ENP or Staff")
     target = _find_user_by_email(req.email)
-    with _sub_orgs_lock:
-        orgs = _load_sub_orgs()
-        org = next((o for o in orgs if o["id"] == sub_org_id), None)
-        if not org:
-            raise HTTPException(404, "Sub-org not found")
-        uid = user["id"]
-        role = user.get("role")
-        if role != "admin" and org.get("owner_id") != uid:
-            raise HTTPException(403, "Forbidden: only owner or admin can add members")
-        if not target:
-            # Non-admin: must find registered user
-            if role != "admin":
-                raise HTTPException(404, f"No user found with email: {req.email}")
-            # Admin: invite unregistered user by email
-            invite_id = f"invite_{req.email.lower().strip()}"
-            if any(m.get("user_id") == invite_id for m in org.get("members", [])):
-                raise HTTPException(409, "This email is already invited to this sub-org")
-            member = {
-                "user_id": invite_id,
-                "email": req.email.lower().strip(),
-                "name": req.email.lower().strip(),
-                "role": req.role,
-                "status": "invited",
-            }
-        else:
-            # Check if already a member
-            if any(m.get("user_id") == target["id"] for m in org.get("members", [])):
-                raise HTTPException(409, "User is already a member of this sub-org")
-            member = {
-                "user_id": target["id"],
-                "email": target.get("email", ""),
-                "name": f"{target.get('first_name', '')} {target.get('last_name', '')}".strip() or target.get("email", ""),
-                "role": req.role,
-                "status": "active",
-            }
-        org.setdefault("members", []).append(member)
-        org["updated_at"] = _dt.now(_tz.utc).isoformat()
-        _save_sub_orgs(orgs)
-        # Capture org details for DC call (outside lock scope for network call)
-        _dc_suborg_uuid = org.get("dc_sub_org_uuid") or ""
-        _dc_suborg_id   = org.get("dc_sub_org_id") or ""
-        _org_type       = org.get("type", "Department")
+    org = _db.get_suborg(sub_org_id)
+    if not org:
+        raise HTTPException(404, "Sub-org not found")
+    uid = user["id"]
+    role = user.get("role")
+    if role != "admin" and org.get("owner_id") != uid:
+        raise HTTPException(403, "Forbidden: only owner or admin can add members")
+    if not target:
+        # Non-admin: must find registered user
+        if role != "admin":
+            raise HTTPException(404, f"No user found with email: {req.email}")
+        # Admin: invite unregistered user by email
+        invite_id = f"invite_{req.email.lower().strip()}"
+        if any(m.get("user_id") == invite_id for m in org.get("members", [])):
+            raise HTTPException(409, "This email is already invited to this sub-org")
+        member = {
+            "user_id": invite_id,
+            "email": req.email.lower().strip(),
+            "name": req.email.lower().strip(),
+            "role": req.role,
+            "status": "invited",
+        }
+    else:
+        # Check if already a member
+        if any(m.get("user_id") == target["id"] for m in org.get("members", [])):
+            raise HTTPException(409, "User is already a member of this sub-org")
+        member = {
+            "user_id": target["id"],
+            "email": target.get("email", ""),
+            "name": f"{target.get('first_name', '')} {target.get('last_name', '')}".strip() or target.get("email", ""),
+            "role": req.role,
+            "status": "active",
+        }
+    org.setdefault("members", []).append(member)
+    org["updated_at"] = _dt.now(_tz.utc).isoformat()
+    _db.save_suborg(org)
+    # Capture org details for DC call
+    _dc_suborg_uuid = org.get("dc_sub_org_uuid") or ""
+    _dc_suborg_id   = org.get("dc_sub_org_id") or ""
+    _org_type       = org.get("type", "Department")
 
     # Provision member in DoconChain (non-blocking)
     _dc_member_error = None
@@ -5919,21 +5892,19 @@ async def add_sub_org_member(sub_org_id: str, req: _SubOrgMemberReq, request: Re
 @app.delete("/api/sub-orgs/{sub_org_id}/members/{member_user_id}")
 async def remove_sub_org_member(sub_org_id: str, member_user_id: str, request: Request):
     user = _require_attorney_or_admin(request)
-    with _sub_orgs_lock:
-        orgs = _load_sub_orgs()
-        org = next((o for o in orgs if o["id"] == sub_org_id), None)
-        if not org:
-            raise HTTPException(404, "Sub-org not found")
-        uid = user["id"]
-        role = user.get("role")
-        if role != "admin" and org.get("owner_id") != uid:
-            raise HTTPException(403, "Forbidden: only owner or admin can remove members")
-        before = len(org.get("members", []))
-        org["members"] = [m for m in org.get("members", []) if m.get("user_id") != member_user_id]
-        if len(org["members"]) == before:
-            raise HTTPException(404, "Member not found")
-        org["updated_at"] = _dt.now(_tz.utc).isoformat()
-        _save_sub_orgs(orgs)
+    org = _db.get_suborg(sub_org_id)
+    if not org:
+        raise HTTPException(404, "Sub-org not found")
+    uid = user["id"]
+    role = user.get("role")
+    if role != "admin" and org.get("owner_id") != uid:
+        raise HTTPException(403, "Forbidden: only owner or admin can remove members")
+    before = len(org.get("members", []))
+    org["members"] = [m for m in org.get("members", []) if m.get("user_id") != member_user_id]
+    if len(org["members"]) == before:
+        raise HTTPException(404, "Member not found")
+    org["updated_at"] = _dt.now(_tz.utc).isoformat()
+    _db.save_suborg(org)
     return {"success": True}
 
 
@@ -5941,9 +5912,7 @@ async def remove_sub_org_member(sub_org_id: str, member_user_id: str, request: R
 @app.get("/api/sub-orgs/{sub_org_id}/credits")
 async def get_sub_org_credits(sub_org_id: str, request: Request):
     user = _require_attorney_or_admin(request)
-    with _sub_orgs_lock:
-        orgs = _load_sub_orgs()
-    org = next((o for o in orgs if o["id"] == sub_org_id), None)
+    org = _db.get_suborg(sub_org_id)
     if not org:
         raise HTTPException(404, "Sub-org not found")
     uid = user["id"]
@@ -5961,18 +5930,16 @@ async def transfer_sub_org_credits(sub_org_id: str, req: _SubOrgCreditTransferRe
     user = _require_attorney_or_admin(request)
     if req.amount <= 0:
         raise HTTPException(400, "amount must be positive")
-    with _sub_orgs_lock:
-        orgs = _load_sub_orgs()
-        org = next((o for o in orgs if o["id"] == sub_org_id), None)
-        if not org:
-            raise HTTPException(404, "Sub-org not found")
-        uid = user["id"]
-        role = user.get("role")
-        if role != "admin" and org.get("owner_id") != uid:
-            raise HTTPException(403, "Forbidden: only owner or admin can transfer credits")
-        org["credits_total"] = org.get("credits_total", 0) + req.amount
-        org["updated_at"] = _dt.now(_tz.utc).isoformat()
-        _save_sub_orgs(orgs)
+    org = _db.get_suborg(sub_org_id)
+    if not org:
+        raise HTTPException(404, "Sub-org not found")
+    uid = user["id"]
+    role = user.get("role")
+    if role != "admin" and org.get("owner_id") != uid:
+        raise HTTPException(403, "Forbidden: only owner or admin can transfer credits")
+    org["credits_total"] = org.get("credits_total", 0) + req.amount
+    org["updated_at"] = _dt.now(_tz.utc).isoformat()
+    _db.save_suborg(org)
     return {"success": True, "credits_total": org["credits_total"]}
 
 
@@ -5980,9 +5947,7 @@ async def transfer_sub_org_credits(sub_org_id: str, req: _SubOrgCreditTransferRe
 @app.get("/api/sub-orgs/{sub_org_id}/credentials")
 async def get_sub_org_credentials(sub_org_id: str, request: Request):
     user = _require_attorney_or_admin(request)
-    with _sub_orgs_lock:
-        orgs = _load_sub_orgs()
-    org = next((o for o in orgs if o["id"] == sub_org_id), None)
+    org = _db.get_suborg(sub_org_id)
     if not org:
         raise HTTPException(404, "Sub-org not found")
     uid = user["id"]
@@ -6010,18 +5975,468 @@ async def get_sub_org_credentials(sub_org_id: str, request: Request):
 @app.put("/api/sub-orgs/{sub_org_id}/credentials")
 async def update_sub_org_credentials(sub_org_id: str, req: _SubOrgCredReq, request: Request):
     user = _require_attorney_or_admin(request)
-    with _sub_orgs_lock:
-        orgs = _load_sub_orgs()
-        org = next((o for o in orgs if o["id"] == sub_org_id), None)
-        if not org:
-            raise HTTPException(404, "Sub-org not found")
-        uid = user["id"]
-        role = user.get("role")
-        if role != "admin" and org.get("owner_id") != uid:
-            raise HTTPException(403, "Forbidden: only owner or admin can update credentials")
-        org["dc_client_key"] = req.dc_client_key
-        org["dc_client_secret"] = req.dc_client_secret
-        org["dc_email"] = req.dc_email
-        org["updated_at"] = _dt.now(_tz.utc).isoformat()
-        _save_sub_orgs(orgs)
+    org = _db.get_suborg(sub_org_id)
+    if not org:
+        raise HTTPException(404, "Sub-org not found")
+    uid = user["id"]
+    role = user.get("role")
+    if role != "admin" and org.get("owner_id") != uid:
+        raise HTTPException(403, "Forbidden: only owner or admin can update credentials")
+    org["dc_client_key"] = req.dc_client_key
+    org["dc_client_secret"] = req.dc_client_secret
+    org["dc_email"] = req.dc_email
+    org["updated_at"] = _dt.now(_tz.utc).isoformat()
+    _db.save_suborg(org)
     return {"success": True}
+
+
+# ─── QuickSign endpoints ──────────────────────────────────────────────────────
+
+
+@app.post("/api/quicksign/create-project")
+async def quicksign_create_project(
+    request: Request,
+    authorization: Optional[str] = Header(None),
+    ql_access: Optional[str] = Cookie(default=None),
+):
+    """ENP uploads a PDF and creates a DoconChain project. Step 1 of QuickSign."""
+    user = get_current_user(authorization, ql_access)
+    if not user:
+        raise HTTPException(401, "Unauthorized")
+    if user.get("role") != "attorney":
+        raise HTTPException(403, "ENP only")
+
+    form = await request.form()
+    doc_name = str(form.get("doc_name", "Document")).strip() or "Document"
+    notarization_type = str(form.get("notarization_type", "ACKNOWLEDGMENT")).strip().upper()
+    file_field = form.get("file")
+
+    if file_field is None:
+        raise HTTPException(400, "No file uploaded")
+
+    file_bytes = await file_field.read()
+    file_name = os.path.basename(getattr(file_field, "filename", "document.pdf") or "document.pdf")
+    content_type_hdr = getattr(file_field, "content_type", "application/pdf") or "application/pdf"
+
+    if len(file_bytes) > 20 * 1024 * 1024:
+        raise HTTPException(400, "File too large — max 20MB")
+    if not file_bytes:
+        raise HTTPException(400, "Empty file")
+
+    enp_user = get_user(user["id"]) or user
+    _qs_apt = {
+        "client_email": "", "client_name": "", "session_participants": [],
+        "mode_of_notarization": "REN", "notarization_type": notarization_type,
+    }
+
+    try:
+        def _mp_qs(url, fields, files=None, hdrs=None):
+            b = "QLQSb9f3a2c1"
+            parts = []
+            for k, v in fields.items():
+                parts.append(f'--{b}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n'.encode())
+            if files:
+                for k, (fn, fd, ft) in files.items():
+                    parts.append(
+                        f'--{b}\r\nContent-Disposition: form-data; name="{k}"; filename="{fn}"\r\nContent-Type: {ft}\r\n\r\n'.encode()
+                        + fd + b'\r\n'
+                    )
+            parts.append(f'--{b}--\r\n'.encode())
+            body = b''.join(parts)
+            h = {'Content-Type': f'multipart/form-data; boundary={b}'}
+            if hdrs:
+                h.update(hdrs)
+            rq = _urllib_req.Request(url, data=body, headers=h, method='POST')
+            with _urllib_req.urlopen(rq, timeout=30) as r:
+                return json.loads(r.read().decode())
+
+        _enp_email_qs = enp_user.get('email') or user.get('email') or _DC_EMAIL
+        tok = _mp_qs(
+            f'{_DC_BASE}/api/v2/generate/token',
+            {'client_key': _DC_CLIENT_KEY, 'client_secret': _DC_CLIENT_SECRET, 'email': _enp_email_qs},
+        )
+        dc_token = (tok.get('data') or {}).get('token') or tok.get('token')
+        if not dc_token:
+            raise ValueError(f"No token: {tok}")
+
+        stamp = _build_dc_stamp(enp_user, _qs_apt)
+        proj = _mp_qs(
+            f'{_DC_BASE}/api/v2/projects?user_type=ENTERPRISE_API',
+            _build_create_fields(stamp, _qs_apt),
+            files={'file': (file_name, file_bytes, content_type_hdr)},
+            hdrs={'Authorization': f'Bearer {dc_token}'},
+        )
+    except _urllib_err.HTTPError as e:
+        raise HTTPException(502, f"DoconChain error {e.code}: {e.read().decode(errors='replace')[:300]}")
+    except Exception as e:
+        raise HTTPException(502, f"DoconChain failed: {str(e)[:200]}")
+
+    data = proj.get('data') or proj
+    project_uuid = data.get('uuid') or data.get('id') or ''
+    if not project_uuid:
+        raise HTTPException(502, f"No UUID in DoconChain response: {str(proj)[:200]}")
+
+    sign_link = f"https://stg-app.doconchain.com/sign/{project_uuid}"
+
+    # Pre-add ENP as DC signer sequence=2 (signs last, after client)
+    _qs_enp_first = enp_user.get("first_name", "") or "ENP"
+    _qs_enp_last  = enp_user.get("last_name", "") or ""
+    _qs_enp_email = enp_user.get("email", "")
+    try:
+        if _qs_enp_email:
+            _add_dc_signer(project_uuid, _qs_enp_email, _qs_enp_first, _qs_enp_last,
+                           "Signer", dc_token, sequence=2)
+            print(f"[QuickSign] ENP pre-added as signer seq=2: {_qs_enp_email}", flush=True)
+    except Exception as _qs_enp_err:
+        print(f"[QuickSign] ENP pre-add failed (non-fatal): {_qs_enp_err}", flush=True)
+
+    return {
+        "project_uuid": project_uuid,
+        "dc_project_uuid": project_uuid,
+        "doc_name": doc_name,
+        "sign_link": sign_link,
+        "notarization_type": notarization_type,
+        "enp_email": _qs_enp_email,
+    }
+
+
+@app.post("/api/quicksign/add-signer")
+async def quicksign_add_signer(
+    req: QuickSignAddSignerRequest,
+    authorization: Optional[str] = Header(None),
+    ql_access: Optional[str] = Cookie(default=None),
+):
+    """Add client as signer to a QuickSign DC project. Step 2 of QuickSign."""
+    user = get_current_user(authorization, ql_access)
+    if not user:
+        raise HTTPException(401, "Unauthorized")
+    if user.get("role") != "attorney":
+        raise HTTPException(403, "ENP only")
+
+    project_uuid = req.project_uuid.strip()
+    if not project_uuid:
+        raise HTTPException(400, "project_uuid required")
+
+    # ── Step 1: Add client as DC signer ────────────────────────────────────
+    _enp_email_qs = (user.get("email") or _DC_EMAIL).strip()
+
+    # Always purge stale token before add — prevents 401 Unauthorized
+    _dc_token_cache.pop(_enp_email_qs, None)
+    _dc_token_cache.pop(_DC_EMAIL, None)
+
+    # Get fresh ENP token explicitly — project is owned by ENP, only ENP token can add signers
+    try:
+        _fresh_enp_token = _get_dc_token(email=_enp_email_qs)
+    except Exception:
+        _fresh_enp_token = _get_dc_token(email=_DC_EMAIL)
+
+    try:
+        client_result = _add_dc_signer(
+            project_uuid, req.client_email.strip(),
+            (req.first_name or "").strip(), (req.last_name or "").strip(),
+            "Signer", _fresh_enp_token, sequence=1,
+        )
+        print(f"[QuickSign] DC signer add result: {client_result}", flush=True)
+    except Exception as e:
+        import traceback as _qtb
+        print(f"[QuickSign] DC add failed: {_qtb.format_exc()}", flush=True)
+        raise HTTPException(502, f"Failed to add signer to DoconChain: {str(e)[:200]}")
+
+    # ── Step 2: Save signer to local appointment ─────────────────────────────
+    try:
+        for _apt2 in _db.list_apts():
+            for _doc2 in _apt2.get("session_documents", []):
+                _duuid2 = _doc2.get("doconchain_project_uuid") or _doc2.get("project_uuid")
+                if _duuid2 == project_uuid:
+                    if "signers" not in _doc2:
+                        _doc2["signers"] = []
+                    _existing_emails2 = [(s.get("email") or "").lower() for s in _doc2["signers"]]
+                    # Client signs FIRST (order 1), ENP signs LAST as notary (order 2)
+                    _client_email_lower = req.client_email.strip().lower()
+                    if _client_email_lower not in _existing_emails2:
+                        _doc2["signers"].insert(0, {
+                            "email": req.client_email.strip(),
+                            "first_name": (req.first_name or "").strip(),
+                            "last_name": (req.last_name or "").strip(),
+                            "signer_role": "Signer",
+                            "signing_order": 1,
+                        })
+                    if _enp_email_qs.lower() not in _existing_emails2:
+                        _doc2["signers"].append({
+                            "email": _enp_email_qs,
+                            "first_name": user.get("first_name") or "ENP",
+                            "last_name": user.get("last_name") or "",
+                            "signer_role": "Signer",
+                            "signing_order": 2,
+                        })
+                    _doc2["dc_workflow_state"] = "plotting_done"
+                    _doc2["plotting_started"] = True
+                    _db.save_apt(_apt2)
+                    break
+    except Exception as e:
+        import traceback; print(f"[QuickSign] Save signer failed (non-fatal): {traceback.format_exc()}", flush=True)
+        # Don't 502 — DC add succeeded, local save is non-fatal
+
+    return {"success": True, "signer_added": True, "result": client_result}
+
+
+@app.post("/api/quicksign/plot-link/{project_uuid}")
+async def quicksign_plot_link(
+    project_uuid: str,
+    authorization: Optional[str] = Header(None),
+    ql_access: Optional[str] = Cookie(default=None),
+):
+    """Get the DoconChain plot link for a QuickSign project. Step 3 of QuickSign."""
+    user = get_current_user(authorization, ql_access)
+    if not user:
+        raise HTTPException(401, "Unauthorized")
+    if user.get("role") != "attorney":
+        raise HTTPException(403, "ENP only")
+    if not project_uuid or not project_uuid.strip():
+        raise HTTPException(400, "project_uuid required")
+
+    import urllib.request as _ureq_qs3, urllib.error as _uerr_qs3, json as _json_qs3
+
+    enp_email = (user.get("email") or "").lower().strip()
+    if not enp_email:
+        raise HTTPException(400, "ENP email not found")
+
+    _dc_token_cache.pop(enp_email, None)
+    _dc_token_cache.pop(_DC_EMAIL, None)
+
+    def _call_plot_qs(token):
+        _rq = _ureq_qs3.Request(
+            f"{_DC_BASE}/api/v2/projects/{project_uuid}/link?user_type=ENTERPRISE_API",
+            data=None,
+            headers={"Accept": "application/json", "Authorization": f"Bearer {token}"},
+            method="POST",
+        )
+        with _ureq_qs3.urlopen(_rq, timeout=30) as _r:
+            return _json_qs3.loads(_r.read().decode())
+
+    resp_data = None
+    _last_code = 502
+    _last_body = "Unknown error"
+    for _retry in range(3):
+        try:
+            _tok = _get_dc_token(email=enp_email)
+        except Exception as _te:
+            _last_body = f"Token error: {_te}"
+            _dc_token_cache.pop(enp_email, None)
+            continue
+        try:
+            resp_data = _call_plot_qs(_tok)
+            break
+        except _uerr_qs3.HTTPError as he:
+            _last_code = he.code
+            _last_body = he.read().decode(errors="replace")
+            _dc_token_cache.pop(enp_email, None)
+            if he.code not in (401, 403):
+                raise HTTPException(he.code, f"DoconChain error {he.code}: {_last_body[:300]}")
+            continue
+
+    if resp_data is None:
+        raise HTTPException(_last_code, f"Plot link failed: {_last_body[:300]}")
+
+    link = (
+        (resp_data.get("message") or {}).get("link")
+        or (resp_data.get("data") or {}).get("link")
+        or resp_data.get("link")
+        or resp_data.get("url")
+        or (resp_data.get("data") or {}).get("url")
+        or (resp_data.get("message") or {}).get("url")
+    )
+    if not link:
+        raise HTTPException(502, f"No link in DoconChain response: {str(resp_data)[:200]}")
+
+    # Resolve DC short link (capture 302 Location, don't follow)
+    resolved_link = link
+    if "doconchain.com" in link:
+        class _NoRedir(_ureq_qs3.HTTPRedirectHandler):
+            def http_error_302(self, req, fp, code, msg, headers):
+                raise _uerr_qs3.HTTPError(req.full_url, code, msg, headers, fp)
+            http_error_301 = http_error_302
+            http_error_303 = http_error_302
+            http_error_307 = http_error_302
+
+        _opener_qs = _ureq_qs3.build_opener(_NoRedir)
+        try:
+            _rr = _ureq_qs3.Request(
+                link,
+                headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"},
+                method="GET",
+            )
+            with _opener_qs.open(_rr, timeout=10):
+                pass
+        except _uerr_qs3.HTTPError as _he_r:
+            loc = _he_r.headers.get("Location") or _he_r.headers.get("location")
+            if loc:
+                resolved_link = loc
+        except Exception:
+            pass
+
+    return {"link": resolved_link}
+
+
+@app.post("/api/quicksign/create-appointment")
+async def quicksign_create_appointment(
+    req: QuickSignCreateAppointmentRequest,
+    authorization: Optional[str] = Header(None),
+    ql_access: Optional[str] = Cookie(default=None),
+):
+    """ENP creates a QuickSign appointment with pre-populated session document. Step 4."""
+    user = get_current_user(authorization, ql_access)
+    if not user:
+        raise HTTPException(401, "Unauthorized")
+    if user.get("role") != "attorney":
+        raise HTTPException(403, "ENP only")
+
+    enp_user = user  # get_current_user already returns full user object
+    enp_name = f"{user.get('first_name', '')} {user.get('last_name', '')}".strip() or user.get('name', 'ENP')
+    enp_email = user.get("email", "")
+
+    client_name = req.client_name.strip() or req.client_email.split("@")[0]
+
+    now_iso = _dt.now(_tz.utc).isoformat()
+    apt_id = str(uuid.uuid4())
+
+    project_uuid = (req.project_uuid or req.dc_project_uuid).strip()
+    sign_link = f"https://stg-app.doconchain.com/sign/{project_uuid}"
+
+    _FEE_QS = {
+        "ACKNOWLEDGMENT": "₱100 – ₱300",
+        "JURAT": "₱100 – ₱300",
+        "AFFIRMATION": "₱100 – ₱300",
+        "SIGNATURE_WITNESSING": "₱50 – ₱200",
+        "COPY_CERTIFICATION": "₱50 – ₱200",
+        "OATH_ADMINISTRATION": "₱100 – ₱300",
+    }
+
+    doc_entry = {
+        "name": req.doc_name,
+        "doc_name": req.doc_name,
+        "notarization_type": req.notarization_type,
+        "description": "",
+        "file_name": f"{req.doc_name}.pdf",
+        "project_uuid": project_uuid,
+        "doconchain_project_uuid": project_uuid,
+        "sign_link": sign_link,
+        "fee": _FEE_QS.get(req.notarization_type, "₱100 – ₱300"),
+        "uploaded_by": user["id"],
+        "uploaded_by_name": enp_name,
+        "uploaded_at": now_iso,
+        "signers": [],
+        "plotting_started": True,
+        "plotting_started_at": now_iso,
+        "dc_workflow_state": "plotting_done",
+        "signers": [
+            {
+                "email": req.client_email,
+                "first_name": req.client_name.split()[0] if req.client_name else req.client_email.split("@")[0],
+                "last_name": " ".join(req.client_name.split()[1:]) if req.client_name and len(req.client_name.split()) > 1 else "",
+                "signer_role": "Signer",
+                "signing_order": 1,
+            },
+            {
+                "email": enp_email,
+                "first_name": user.get("first_name", "ENP"),
+                "last_name": user.get("last_name", ""),
+                "signer_role": "Signer",
+                "signing_order": 2,
+            },
+        ],
+    }
+
+    apt = {
+        "apt_id": apt_id,
+        "client_id": f"guest:{req.client_email}",
+        "client_name": client_name,
+        "client_email": req.client_email,
+        "enp_id": user["id"],
+        "enp_name": enp_name,
+        "enp_email": enp_email,
+        "notarization_type": req.notarization_type,
+        "mode": "REN",
+        "notes": req.notes[:1000] if req.notes else "",
+        "title": f"QuickSign — {req.doc_name}",
+        "preferred_time": req.scheduled_at[:200] if req.scheduled_at else "",
+        "status": "CONFIRMED",
+        "created_at": now_iso,
+        "updated_at": now_iso,
+        "confirmed_at": now_iso,
+        "doconchain_project_uuid": project_uuid,
+        "doconchain_sign_link": sign_link,
+        "session_documents": [doc_entry],
+        "session_participants": [],
+        "dc_workflow_state": "plotting_done",
+        "quicksign": True,
+    }
+
+    # Auto-provision LiveKit room so the session is immediately joinable
+    import secrets as _secrets
+    room_name = f"qs-{apt_id[:8]}-{_secrets.token_hex(4)}"
+    apt["session_room_name"] = room_name
+    apt["session_status"] = "active"
+    apt["session_created_at"] = now_iso
+
+    _db.save_apt(apt)
+
+    # Send email invite to the client
+    try:
+        from email_service import send_email
+        _session_url = f"https://legal.quanbyai.com/session?apt={apt_id}&room={room_name}&guest=1"
+        _lobby_url   = f"https://legal.quanbyai.com/lobby?apt={apt_id}&room={room_name}&guest=1"
+        _email_html = f"""
+<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#05060f;color:#f1f5f9;padding:32px;border-radius:12px;">
+  <div style="text-align:center;margin-bottom:24px;">
+    <img src="https://legal.quanbyai.com/qlegal-logo.png" alt="Quanby Legal" style="height:48px;"/>
+    <h2 style="color:#a78bfa;margin:12px 0 4px;">You have a document to sign</h2>
+    <p style="color:#8892a4;font-size:14px;margin:0;">Quanby Legal — Electronic Notarization</p>
+  </div>
+  <div style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:10px;padding:20px;margin-bottom:20px;">
+    <p style="margin:0 0 8px;font-size:15px;">Hello <strong style="color:#f1f5f9;">{req.client_name or req.client_email}</strong>,</p>
+    <p style="color:#8892a4;font-size:14px;margin:0 0 16px;">
+      <strong style="color:#f1f5f9;">{enp_name}</strong> has prepared a document for your signature via Quanby Legal.
+    </p>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <tr><td style="color:#8892a4;padding:4px 0;width:120px;">Document:</td><td style="color:#f1f5f9;">{req.doc_name}</td></tr>
+      <tr><td style="color:#8892a4;padding:4px 0;">Type:</td><td style="color:#f1f5f9;">{req.notarization_type.replace('_',' ').title()}</td></tr>
+      <tr><td style="color:#8892a4;padding:4px 0;">Notary (ENP):</td><td style="color:#f1f5f9;">{enp_name}</td></tr>
+    </table>
+  </div>
+  <div style="text-align:center;margin-bottom:20px;">
+    <a href="{_lobby_url}" style="display:inline-block;background:linear-gradient(135deg,#7c3aed,#ec4899);color:white;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;">
+      🔐 Join Session &amp; Sign Document
+    </a>
+  </div>
+  <p style="color:#8892a4;font-size:12px;text-align:center;">
+    No account needed — click the button above to go directly to your signing session.<br/>
+    If the button doesn't work, copy this link: <a href="{_lobby_url}" style="color:#a78bfa;">{_lobby_url}</a>
+  </p>
+  <hr style="border:none;border-top:1px solid rgba(255,255,255,0.08);margin:20px 0;"/>
+  <p style="color:#8892a4;font-size:11px;text-align:center;margin:0;">
+    Quanby Legal · Electronic Notarization Platform · <a href="https://legal.quanbyai.com" style="color:#7c3aed;">legal.quanbyai.com</a>
+  </p>
+</div>"""
+        _email_text = f"""You have a document to sign via Quanby Legal.
+
+Document: {req.doc_name}
+Type: {req.notarization_type}
+Notary: {enp_name}
+
+Click here to join the signing session:
+{_lobby_url}
+
+No account needed — this link gives you direct access."""
+
+        send_email(
+            to_email=req.client_email,
+            subject=f"[Quanby Legal] {enp_name} has prepared a document for your signature",
+            html_body=_email_html,
+            text_body=_email_text,
+        )
+        print(f"[QuickSign] Invite email sent to {req.client_email}", flush=True)
+    except Exception as _email_err:
+        print(f"[QuickSign] Email invite failed (non-fatal): {_email_err}", flush=True)
+
+    return {"apt_id": apt_id, "appointment_created": True, "room_name": room_name}

@@ -9,7 +9,6 @@
         return el && el.tagName === 'SCRIPT' && typeof el.src === 'string' &&
                el.src.indexOf('cloudflareinsights') !== -1;
       }
-      /* Intercept DOM insertions before they reach the browser */
       var _ac = Element.prototype.appendChild;
       Element.prototype.appendChild = function(c) {
         if (isCFBeacon(c)) return c;
@@ -20,7 +19,6 @@
         if (isCFBeacon(c)) return c;
         return _ib.call(this, c, r);
       };
-      /* Remove any already-injected beacon tags */
       function stripNow() {
         document.querySelectorAll('script[src*="cloudflareinsights"]').forEach(function(s) {
           if (s.parentNode) s.parentNode.removeChild(s);
@@ -31,7 +29,6 @@
       } else {
         stripNow();
       }
-      /* Suppress any resulting errors silently */
       var _oe = window.onerror;
       window.onerror = function(m, src, l, c, e) {
         if (src && src.indexOf('cloudflareinsights') !== -1) return true;
@@ -47,16 +44,17 @@
 <link rel="stylesheet" href="https://cdn.hugeicons.com/font/hgi-stroke-rounded.css"/>
 <style>
   :root {
-    --navy: #1B2A6B; --gold: #C9A84C; --teal: #0EA5E9; --bg: #080B18;
-    --surface: #0F1220; --surface2: #141829; --border: rgba(255,255,255,0.07);
+    --navy: #1B2A6B; --gold: #C9A84C; --teal: #10b981; --bg: #05060f;
+    --surface: #0d0f1c; --surface2: #111327; --border: rgba(255,255,255,0.07);
     --border2: rgba(255,255,255,0.12); --text: #E8EAF2; --muted: #8B90A8;
     --purple: #7c3aed; --green: #10B981; --red: #F87171; --amber: #F59E0B;
+    --card: rgba(255,255,255,0.04);
   }
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Inter', system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
 
   /* ── NAV ── */
-  nav { background: rgba(10,12,24,0.97); border-bottom: 1px solid rgba(255,255,255,0.06); position: sticky; top: 0; z-index: 100; backdrop-filter: blur(12px); }
+  nav { background: rgba(5,6,15,0.97); border-bottom: 1px solid rgba(255,255,255,0.06); position: sticky; top: 0; z-index: 100; backdrop-filter: blur(12px); }
   .nav-content { max-width: 1280px; margin: 0 auto; padding: 0 2rem; height: 64px; display: flex; align-items: center; gap: 2rem; }
   .logo { display: flex; align-items: center; gap: 0.625rem; text-decoration: none; flex-shrink: 0; }
   .logo-img { height: 32px; width: auto; }
@@ -68,7 +66,7 @@
   .nav-user { display: flex; align-items: center; gap: 0.625rem; position: relative; cursor: pointer; }
   .nav-user-avatar { width: 34px; height: 34px; border-radius: 50%; object-fit: cover; border: 2px solid rgba(201,168,76,0.4); }
   .nav-user-name { font-size: 0.85rem; color: #8b90a8; max-width: 120px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .nav-user-initials { width: 34px; height: 34px; border-radius: 50%; background: linear-gradient(135deg, #1B2A6B, #0EA5E9); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.8rem; color: #fff; border: 2px solid rgba(201,168,76,0.4); flex-shrink: 0; }
+  .nav-user-initials { width: 34px; height: 34px; border-radius: 50%; background: linear-gradient(135deg, #1B2A6B, #10b981); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.8rem; color: #fff; border: 2px solid rgba(201,168,76,0.4); flex-shrink: 0; }
   .nav-cert-badge { background: rgba(16,185,129,0.12); border: 1px solid rgba(16,185,129,0.3); color: #6ee7b7; padding: 0.2rem 0.6rem; border-radius: 99px; font-size: 0.7rem; font-weight: 600; cursor: pointer; }
   .nav-user-menu { position: absolute; right: 0; top: calc(100% + 6px); background: var(--surface2); border: 1px solid var(--border2); border-radius: 10px; min-width: 210px; box-shadow: 0 12px 40px rgba(0,0,0,0.6); overflow: hidden; z-index: 200; }
   .num-header { padding: 0.875rem 1rem; display: flex; align-items: center; gap: 0.625rem; }
@@ -90,9 +88,243 @@
   .dash-loading { text-align: center; padding: 5rem 2rem; color: var(--muted); font-size: 0.9rem; }
   .error-box { background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.25); border-radius: 14px; padding: 2rem; text-align: center; color: var(--red); max-width: 420px; margin: 4rem auto; }
 
-  /* ── HERO STRIP ── */
+  /* ── STATUS CHIPS ── */
+  .status-chip { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.38rem 0.85rem; border-radius: 99px; font-size: 0.78rem; font-weight: 600; }
+  .status-chip.certified { background: rgba(16,185,129,0.12); border: 1px solid rgba(16,185,129,0.35); color: #34d399; }
+  .status-chip.pending { background: rgba(139,144,168,0.1); border: 1px solid rgba(139,144,168,0.25); color: var(--muted); }
+  .status-chip.probationary { background: rgba(245,158,11,0.12); border: 1px solid rgba(245,158,11,0.35); color: var(--amber); }
+
+  /* ── BUTTONS ── */
+  .btn-gold { display: inline-flex; align-items: center; gap: 0.4rem; background: linear-gradient(135deg,#C9A84C,#ddb96e); color: #0D0F1A; font-weight: 700; padding: 0.6rem 1.25rem; border-radius: 7px; border: none; cursor: pointer; font-size: 0.85rem; text-decoration: none; transition: opacity 0.15s; white-space: nowrap; }
+  .btn-gold:hover { opacity: 0.88; }
+  .btn-outline { display: inline-flex; align-items: center; gap: 0.4rem; background: rgba(255,255,255,0.04); border: 1px solid var(--border2); color: var(--text); font-weight: 600; padding: 0.55rem 1.125rem; border-radius: 7px; text-decoration: none; font-size: 0.85rem; cursor: pointer; transition: background 0.15s, border-color 0.15s; white-space: nowrap; }
+  .btn-outline:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.2); }
+  .btn-teal { display: inline-flex; align-items: center; gap: 0.4rem; background: rgba(16,185,129,0.15); border: 1px solid rgba(16,185,129,0.35); color: #34d399; font-weight: 600; padding: 0.55rem 1.125rem; border-radius: 7px; font-size: 0.85rem; cursor: pointer; text-decoration: none; transition: background 0.15s; white-space: nowrap; }
+  .btn-teal:hover { background: rgba(16,185,129,0.25); }
+  .btn-purple { display: inline-flex; align-items: center; gap: 0.4rem; background: rgba(124,58,237,0.15); border: 1px solid rgba(124,58,237,0.35); color: #a78bfa; font-weight: 600; padding: 0.55rem 1.125rem; border-radius: 7px; font-size: 0.85rem; cursor: pointer; text-decoration: none; transition: background 0.15s; white-space: nowrap; }
+  .btn-purple:hover { background: rgba(124,58,237,0.25); }
+  .btn-danger { display: inline-flex; align-items: center; gap: 0.4rem; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); color: #f87171; font-weight: 600; padding: 0.55rem 1.125rem; border-radius: 7px; font-size: 0.85rem; cursor: pointer; }
+
+  /* ── NOTICES ── */
+  .notice { background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.25); border-radius: 8px; padding: 0.875rem 1rem; font-size: 0.82rem; color: var(--amber); display: flex; align-items: flex-start; gap: 0.625rem; line-height: 1.5; }
+  .notice.danger { background: rgba(239,68,68,0.07); border-color: rgba(239,68,68,0.25); color: var(--red); }
+
+  /* ══════════════════════════════════════════
+     CLIENT DASHBOARD
+  ══════════════════════════════════════════ */
+
+  /* Welcome card */
+  .client-welcome {
+    background: linear-gradient(135deg, rgba(124,58,237,0.12) 0%, rgba(16,185,129,0.06) 100%);
+    border: 1px solid rgba(124,58,237,0.2);
+    border-radius: 18px;
+    padding: 2rem 2.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1.5rem;
+    margin-bottom: 1.5rem;
+    position: relative;
+    overflow: hidden;
+  }
+  .client-welcome::before {
+    content: '';
+    position: absolute;
+    top: -60px; right: -60px;
+    width: 220px; height: 220px;
+    background: radial-gradient(circle, rgba(124,58,237,0.12), transparent 70%);
+    pointer-events: none;
+  }
+  .client-welcome::after {
+    content: '';
+    position: absolute;
+    bottom: -40px; left: 30%;
+    width: 160px; height: 160px;
+    background: radial-gradient(circle, rgba(16,185,129,0.07), transparent 70%);
+    pointer-events: none;
+  }
+  .client-welcome-left { display: flex; align-items: center; gap: 1.25rem; position: relative; z-index: 1; }
+  .client-avatar {
+    width: 60px; height: 60px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #7c3aed, #10b981);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.4rem; font-weight: 700; color: #fff;
+    flex-shrink: 0;
+    border: 2px solid rgba(124,58,237,0.4);
+    box-shadow: 0 0 0 4px rgba(124,58,237,0.08);
+  }
+  .client-welcome-meta {}
+  .client-greeting { font-size: 0.75rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.09em; margin-bottom: 0.25rem; }
+  .client-name { font-size: 1.4rem; font-weight: 800; letter-spacing: -0.02em; line-height: 1.2; margin-bottom: 0.35rem; }
+  .client-email-disp { font-size: 0.8rem; color: var(--muted); margin-bottom: 0.5rem; }
+  .client-role-badge {
+    display: inline-block;
+    background: rgba(124,58,237,0.12);
+    border: 1px solid rgba(124,58,237,0.3);
+    color: #a78bfa;
+    font-size: 0.67rem; font-weight: 700;
+    padding: 0.2rem 0.65rem;
+    border-radius: 99px;
+    letter-spacing: 0.07em; text-transform: uppercase;
+  }
+  .client-welcome-right { flex-shrink: 0; position: relative; z-index: 1; text-align: right; }
+  .client-welcome-tagline { font-size: 0.8rem; color: var(--muted); line-height: 1.6; max-width: 180px; }
+
+  /* Quick actions (3 cards) */
+  .client-quick-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+  .quick-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1.5rem 1.375rem 1.375rem;
+    cursor: pointer;
+    transition: transform 0.18s ease, border-color 0.18s, box-shadow 0.18s, background 0.18s;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    text-decoration: none;
+    color: var(--text);
+    position: relative;
+    overflow: hidden;
+  }
+  .quick-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    border-radius: 14px 14px 0 0;
+  }
+  .quick-card-purple::before { background: var(--purple); }
+  .quick-card-teal::before   { background: var(--teal); }
+  .quick-card-gold::before   { background: var(--gold); }
+  .quick-card:hover {
+    transform: translateY(-3px);
+    border-color: var(--border2);
+    background: rgba(255,255,255,0.06);
+    box-shadow: 0 12px 36px rgba(0,0,0,0.35);
+  }
+  .quick-icon {
+    width: 44px; height: 44px;
+    border-radius: 11px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.15rem;
+    flex-shrink: 0;
+  }
+  .quick-icon-purple { background: rgba(124,58,237,0.14); color: #a78bfa; }
+  .quick-icon-teal   { background: rgba(16,185,129,0.14); color: #34d399; }
+  .quick-icon-gold   { background: rgba(201,168,76,0.14); color: var(--gold); }
+  .quick-title { font-size: 0.97rem; font-weight: 700; line-height: 1.2; }
+  .quick-desc  { font-size: 0.78rem; color: var(--muted); line-height: 1.6; flex: 1; }
+  .quick-cta   { align-self: flex-start; pointer-events: none; font-size: 0.78rem; padding: 0.45rem 0.9rem; }
+
+  /* Client status row (3 cards) */
+  .client-stats-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+  .cstat-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.25rem 1.375rem 1.125rem;
+    position: relative;
+    overflow: hidden;
+    transition: border-color 0.15s, transform 0.15s;
+  }
+  .cstat-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    border-radius: 12px 12px 0 0;
+  }
+  .cstat-onboarding::before { background: var(--teal); }
+  .cstat-role::before        { background: var(--purple); }
+  .cstat-member::before      { background: var(--gold); }
+  .cstat-card:hover { border-color: var(--border2); transform: translateY(-2px); }
+  .cstat-label { font-size: 0.67rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.09em; color: var(--muted); margin-bottom: 0.5rem; }
+  .cstat-value { font-size: 1rem; font-weight: 700; color: var(--text); line-height: 1.3; }
+  .cstat-sub   { font-size: 0.71rem; color: var(--muted); margin-top: 0.3rem; }
+
+  /* Recent appointments section */
+  .client-recent {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+  }
+  .client-recent-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1.25rem 1.5rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .client-recent-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.67rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+  }
+  .client-recent-list { padding: 0.375rem 0; }
+  .appt-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.875rem 1.5rem;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    transition: background 0.12s;
+    cursor: pointer;
+  }
+  .appt-row:last-child { border-bottom: none; }
+  .appt-row:hover { background: rgba(255,255,255,0.03); }
+  .appt-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .appt-dot-pending   { background: var(--amber); }
+  .appt-dot-confirmed { background: var(--teal); }
+  .appt-dot-completed { background: var(--muted); }
+  .appt-dot-cancelled { background: var(--red); }
+  .appt-info { flex: 1; min-width: 0; }
+  .appt-with   { font-size: 0.85rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .appt-date   { font-size: 0.75rem; color: var(--muted); margin-top: 0.1rem; }
+  .appt-status-badge {
+    font-size: 0.68rem; font-weight: 700; padding: 0.2rem 0.55rem;
+    border-radius: 99px; text-transform: uppercase; letter-spacing: 0.05em; flex-shrink: 0;
+  }
+  .appt-status-pending   { background: rgba(245,158,11,0.12); color: var(--amber); border: 1px solid rgba(245,158,11,0.25); }
+  .appt-status-confirmed { background: rgba(16,185,129,0.12); color: #34d399; border: 1px solid rgba(16,185,129,0.25); }
+  .appt-status-completed { background: rgba(139,144,168,0.1); color: var(--muted); border: 1px solid rgba(139,144,168,0.2); }
+  .appt-status-cancelled { background: rgba(248,113,113,0.1); color: var(--red); border: 1px solid rgba(248,113,113,0.2); }
+  .appt-empty {
+    padding: 2.5rem 1.5rem;
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.85rem;
+  }
+  .appt-empty i { font-size: 1.75rem; display: block; margin-bottom: 0.625rem; opacity: 0.35; }
+
+  /* ══════════════════════════════════════════
+     ENP DASHBOARD (attorney)
+  ══════════════════════════════════════════ */
+
+  /* Hero strip */
   .hero-strip {
-    background: linear-gradient(135deg, rgba(27,42,107,0.4) 0%, rgba(14,165,233,0.1) 100%);
+    background: linear-gradient(135deg, rgba(27,42,107,0.4) 0%, rgba(16,185,129,0.08) 100%);
     border: 1px solid rgba(201,168,76,0.2);
     border-radius: 16px;
     padding: 2rem 2.25rem;
@@ -109,14 +341,14 @@
     position: absolute;
     top: -80px; right: -80px;
     width: 240px; height: 240px;
-    background: radial-gradient(circle, rgba(14,165,233,0.1), transparent 70%);
+    background: radial-gradient(circle, rgba(16,185,129,0.08), transparent 70%);
     pointer-events: none;
   }
   .hero-left { display: flex; align-items: center; gap: 1.25rem; position: relative; z-index: 1; }
   .hero-avatar {
     width: 56px; height: 56px;
     border-radius: 50%;
-    background: linear-gradient(135deg, var(--navy), var(--teal));
+    background: linear-gradient(135deg, var(--navy), #10b981);
     display: flex; align-items: center; justify-content: center;
     font-size: 1.3rem; font-weight: 700; color: #fff;
     flex-shrink: 0;
@@ -124,7 +356,7 @@
     box-shadow: 0 0 0 4px rgba(201,168,76,0.1);
   }
   .hero-meta {}
-  .hero-name { font-size: 1.35rem; font-weight: 700; letter-spacing: -0.015em; margin-bottom: 0.2rem; line-height: 1.2; }
+  .hero-name  { font-size: 1.35rem; font-weight: 700; letter-spacing: -0.015em; margin-bottom: 0.2rem; line-height: 1.2; }
   .hero-email { font-size: 0.81rem; color: var(--muted); margin-bottom: 0.5rem; }
   .role-badge {
     display: inline-block;
@@ -138,13 +370,7 @@
   }
   .hero-right { flex-shrink: 0; position: relative; z-index: 1; }
 
-  /* Status chips */
-  .status-chip { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.38rem 0.85rem; border-radius: 99px; font-size: 0.78rem; font-weight: 600; }
-  .status-chip.certified { background: rgba(16,185,129,0.12); border: 1px solid rgba(16,185,129,0.35); color: #34d399; }
-  .status-chip.pending { background: rgba(139,144,168,0.1); border: 1px solid rgba(139,144,168,0.25); color: var(--muted); }
-  .status-chip.probationary { background: rgba(245,158,11,0.12); border: 1px solid rgba(245,158,11,0.35); color: var(--amber); }
-
-  /* ── STATS ROW ── */
+  /* ENP Stats row */
   .stats-row {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
@@ -152,7 +378,7 @@
     margin-bottom: 1.5rem;
   }
   .stat-card {
-    background: var(--surface);
+    background: var(--card);
     border: 1px solid var(--border);
     border-radius: 12px;
     padding: 1.2rem 1.25rem 1rem;
@@ -175,11 +401,10 @@
   .stat-card:hover { border-color: var(--border2); transform: translateY(-2px); }
   .stat-label { font-size: 0.67rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.09em; color: var(--muted); margin-bottom: 0.55rem; }
   .stat-value { font-size: 1.05rem; font-weight: 700; color: var(--text); line-height: 1.3; }
-  .stat-sub { font-size: 0.71rem; color: var(--muted); margin-top: 0.3rem; }
-  /* SC stat full-width bar below grid */
+  .stat-sub   { font-size: 0.71rem; color: var(--muted); margin-top: 0.3rem; }
   .stat-card-wide {
     grid-column: 1 / -1;
-    background: var(--surface);
+    background: var(--card);
     border: 1px solid var(--border);
     border-radius: 12px;
     padding: 1rem 1.25rem;
@@ -187,20 +412,15 @@
     margin-bottom: 1.5rem;
   }
 
-  /* ── SECTION WRAPPER ── */
+  /* Section wrapper */
   .dash-section {
-    background: var(--surface);
+    background: var(--card);
     border: 1px solid var(--border);
     border-radius: 14px;
     padding: 1.625rem 1.875rem;
     margin-bottom: 1.25rem;
   }
-  .dash-section.cert-section {
-    background: var(--surface);
-    border-color: rgba(201,168,76,0.2);
-  }
-
-  /* Section headers */
+  .dash-section.cert-section { border-color: rgba(201,168,76,0.2); }
   .section-header {
     display: flex;
     align-items: center;
@@ -216,11 +436,11 @@
   }
   .section-header i { font-size: 0.9rem; }
 
-  /* ── CERTIFICATE SECTION ── */
+  /* Certificate section */
   .cert-id-block {
     font-family: 'Courier New', 'Lucida Console', monospace;
     font-size: 0.875rem;
-    background: #0a0d1a;
+    background: rgba(5,6,15,0.6);
     border: 1px solid rgba(201,168,76,0.2);
     border-radius: 8px;
     padding: 0.9rem 1.125rem;
@@ -232,91 +452,182 @@
   }
   .cert-actions { display: flex; flex-wrap: wrap; gap: 0.75rem; }
 
-  /* ── KYC SECTION ── */
-  .kyc-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 1rem;
-    margin-bottom: 1.125rem;
-  }
+  /* KYC section */
+  .kyc-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 1.125rem; }
   .kyc-item-label { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); margin-bottom: 0.4rem; }
   .kyc-item-value { font-weight: 600; font-size: 0.88rem; }
+  .kyc-done-msg { color: #34d399; font-size: 0.82rem; font-weight: 600; display: flex; align-items: center; gap: 0.4rem; }
 
-  /* ── SC SECTION ── */
+  /* SC section */
   .sc-status-banner {
-    display: flex;
-    align-items: flex-start;
-    gap: 0.875rem;
-    padding: 1rem 1.125rem;
-    border-radius: 8px;
-    background: rgba(245,158,11,0.06);
-    margin-bottom: 0.875rem;
+    display: flex; align-items: flex-start; gap: 0.875rem;
+    padding: 1rem 1.125rem; border-radius: 8px;
+    background: rgba(245,158,11,0.06); margin-bottom: 0.875rem;
   }
   .sc-steps {
-    background: rgba(255,255,255,0.025);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 1rem;
-    margin-bottom: 1.125rem;
+    background: rgba(255,255,255,0.025); border: 1px solid var(--border);
+    border-radius: 8px; padding: 1rem; margin-bottom: 1.125rem;
   }
 
-  /* ── ACTION CARDS (services grid) ── */
-  .services-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-    gap: 1rem;
-  }
+  /* ENP action cards */
+  .services-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 1rem; }
   .action-card {
-    background: var(--surface2);
+    background: rgba(255,255,255,0.03);
     border: 1px solid var(--border);
     border-radius: 12px;
     padding: 1.5rem;
     cursor: pointer;
     transition: transform 0.18s ease, border-color 0.18s, box-shadow 0.18s;
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-    text-decoration: none;
-    color: var(--text);
+    display: flex; flex-direction: column; gap: 0.75rem;
+    text-decoration: none; color: var(--text);
   }
-  .action-card:hover {
-    transform: translateY(-3px);
-    border-color: var(--border2);
-    box-shadow: 0 10px 36px rgba(0,0,0,0.35);
-  }
-  .action-icon {
-    width: 42px; height: 42px;
-    border-radius: 10px;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 1.1rem;
-    flex-shrink: 0;
-  }
+  .action-card:hover { transform: translateY(-3px); border-color: var(--border2); box-shadow: 0 10px 36px rgba(0,0,0,0.35); }
+  .action-icon { width: 42px; height: 42px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; flex-shrink: 0; }
   .action-title { font-size: 0.95rem; font-weight: 700; line-height: 1.2; }
-  .action-desc { font-size: 0.78rem; color: var(--muted); line-height: 1.6; flex: 1; }
-  .action-cta { align-self: flex-start; pointer-events: none; }
+  .action-desc  { font-size: 0.78rem; color: var(--muted); line-height: 1.6; flex: 1; }
+  .action-cta   { align-self: flex-start; pointer-events: none; }
 
-  /* ── BUTTONS ── */
-  .btn-gold { display: inline-flex; align-items: center; gap: 0.4rem; background: linear-gradient(135deg,#C9A84C,#ddb96e); color: #0D0F1A; font-weight: 700; padding: 0.6rem 1.25rem; border-radius: 7px; border: none; cursor: pointer; font-size: 0.85rem; text-decoration: none; transition: opacity 0.15s; white-space: nowrap; }
-  .btn-gold:hover { opacity: 0.88; }
-  .btn-outline { display: inline-flex; align-items: center; gap: 0.4rem; background: rgba(255,255,255,0.04); border: 1px solid var(--border2); color: var(--text); font-weight: 600; padding: 0.55rem 1.125rem; border-radius: 7px; text-decoration: none; font-size: 0.85rem; cursor: pointer; transition: background 0.15s, border-color 0.15s; white-space: nowrap; }
-  .btn-outline:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.2); }
-  .btn-teal { display: inline-flex; align-items: center; gap: 0.4rem; background: rgba(14,165,233,0.15); border: 1px solid rgba(14,165,233,0.35); color: #38bdf8; font-weight: 600; padding: 0.55rem 1.125rem; border-radius: 7px; font-size: 0.85rem; cursor: pointer; text-decoration: none; transition: background 0.15s; white-space: nowrap; }
-  .btn-teal:hover { background: rgba(14,165,233,0.25); }
-  .btn-danger { display: inline-flex; align-items: center; gap: 0.4rem; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); color: #f87171; font-weight: 600; padding: 0.55rem 1.125rem; border-radius: 7px; font-size: 0.85rem; cursor: pointer; }
-
-  /* ── NOTICES ── */
-  .notice { background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.25); border-radius: 8px; padding: 0.875rem 1rem; font-size: 0.82rem; color: var(--amber); display: flex; align-items: flex-start; gap: 0.625rem; line-height: 1.5; }
-  .notice.danger { background: rgba(239,68,68,0.07); border-color: rgba(239,68,68,0.25); color: var(--red); }
-
-  /* KYC done msg */
-  .kyc-done-msg { color: #34d399; font-size: 0.82rem; font-weight: 600; display: flex; align-items: center; gap: 0.4rem; }
+  /* ── PAST APPOINTMENTS (client accordion) ── */
+  .past-appts-wrap {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+    margin-bottom: 0;
+  }
+  .past-appts-hdr {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1.25rem 1.5rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .past-appts-title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.67rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+  }
+  .past-appts-list { padding: 0.375rem 0; }
+  .past-appt-card { border-bottom: 1px solid rgba(255,255,255,0.04); }
+  .past-appt-card:last-child { border-bottom: none; }
+  .past-appt-hdr {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem 1.5rem;
+    cursor: pointer;
+    transition: background 0.12s;
+    user-select: none;
+  }
+  .past-appt-hdr:hover { background: rgba(255,255,255,0.03); }
+  .past-appt-left { flex: 1; min-width: 0; }
+  .past-appt-type {
+    font-size: 0.88rem; font-weight: 600;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    margin-bottom: 0.2rem;
+  }
+  .past-appt-meta { font-size: 0.73rem; color: var(--muted); }
+  .past-appt-right { display: flex; align-items: center; gap: 0.75rem; flex-shrink: 0; }
+  /* Session status badges */
+  .sess-badge {
+    font-size: 0.68rem; font-weight: 700;
+    padding: 0.22rem 0.6rem; border-radius: 99px;
+    text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  .sess-completed {
+    background: rgba(16,185,129,0.12); color: #34d399;
+    border: 1px solid rgba(16,185,129,0.25);
+  }
+  .sess-active {
+    background: rgba(16,185,129,0.12); color: #34d399;
+    border: 1px solid rgba(16,185,129,0.25);
+  }
+  .sess-active::before {
+    content: ''; display: inline-block;
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--teal); margin-right: 4px;
+    vertical-align: middle;
+    animation: pdot 1.6s ease-in-out infinite;
+  }
+  @keyframes pdot {
+    0%,100% { opacity:1; transform:scale(1); }
+    50%      { opacity:.45; transform:scale(.75); }
+  }
+  .sess-scheduled {
+    background: rgba(245,158,11,0.12); color: var(--amber);
+    border: 1px solid rgba(245,158,11,0.25);
+  }
+  .sess-pending {
+    background: rgba(139,144,168,0.1); color: var(--muted);
+    border: 1px solid rgba(139,144,168,0.2);
+  }
+  .past-appt-chevron {
+    font-size: 0.9rem; color: var(--muted);
+    transition: transform 0.22s ease; flex-shrink: 0;
+  }
+  .past-appt-card.pa-open .past-appt-chevron { transform: rotate(-180deg); }
+  /* Accordion body */
+  .past-appt-docs { max-height: 0; overflow: hidden; transition: max-height 0.28s ease; }
+  .past-appt-card.pa-open .past-appt-docs { max-height: 800px; }
+  .past-appt-docs-inner {
+    background: rgba(0,0,0,0.18);
+    border-top: 1px solid rgba(255,255,255,0.05);
+    padding: 0.5rem 1.5rem 0.875rem;
+  }
+  .doc-list-lbl {
+    font-size: 0.62rem; font-weight: 800;
+    text-transform: uppercase; letter-spacing: 0.1em;
+    color: var(--muted); margin-bottom: 0.5rem; padding-top: 0.375rem;
+  }
+  .doc-row {
+    display: flex; align-items: center; gap: 0.75rem;
+    padding: 0.5rem 0; border-bottom: 1px solid rgba(255,255,255,0.04);
+  }
+  .doc-row:last-child { border-bottom: none; }
+  .doc-ico {
+    width: 30px; height: 30px; border-radius: 7px;
+    background: rgba(124,58,237,0.1); color: #a78bfa;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.85rem; flex-shrink: 0;
+  }
+  .doc-name {
+    flex: 1; min-width: 0; font-size: 0.82rem; font-weight: 500;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .doc-chip {
+    font-size: 0.65rem; font-weight: 700;
+    padding: 0.18rem 0.5rem; border-radius: 99px;
+    text-transform: uppercase; letter-spacing: 0.04em; flex-shrink: 0;
+  }
+  .doc-signed   { background:rgba(16,185,129,0.1); color:#34d399; border:1px solid rgba(16,185,129,0.2); }
+  .doc-unsigned { background:rgba(139,144,168,0.1); color:var(--muted); border:1px solid rgba(139,144,168,0.2); }
+  .doc-dc-link {
+    font-size: 0.72rem; color: var(--teal); text-decoration: none;
+    display: inline-flex; align-items: center; gap: 0.25rem;
+    flex-shrink: 0; transition: opacity 0.12s;
+  }
+  .doc-dc-link:hover { opacity: 0.72; }
+  .past-appts-empty {
+    padding: 2.5rem 1.5rem; text-align: center;
+    color: var(--muted); font-size: 0.85rem;
+  }
+  .past-appts-empty i { font-size: 1.75rem; display: block; margin-bottom: 0.625rem; opacity: 0.35; }
 
   /* ── RESPONSIVE ── */
   @media (max-width: 768px) {
     .stats-row { grid-template-columns: 1fr 1fr; }
+    .client-quick-grid { grid-template-columns: 1fr; }
+    .client-stats-row { grid-template-columns: 1fr 1fr; }
     .hero-strip { flex-direction: column; align-items: flex-start; padding: 1.5rem; }
     .hero-right { align-self: flex-start; }
     .kyc-grid { grid-template-columns: 1fr 1fr; }
+    .client-welcome { flex-direction: column; align-items: flex-start; padding: 1.5rem; }
+    .client-welcome-right { align-self: flex-start; }
   }
   @media (max-width: 480px) {
     .dash-main { padding: 1.25rem 1rem 3rem; }
@@ -326,6 +637,9 @@
     .kyc-grid { grid-template-columns: 1fr; }
     .cert-actions { flex-direction: column; }
     .services-grid { grid-template-columns: 1fr; }
+    .client-stats-row { grid-template-columns: 1fr; }
+    .client-welcome { padding: 1.25rem; }
+    .client-welcome-left { flex-direction: column; align-items: flex-start; }
   }
 </style>
 <script src="https://hv-camera-web-sg.s3-ap-southeast-1.amazonaws.com/hyperverge-web-sdk@10.3.0/src/sdk.min.js"></script>
@@ -347,7 +661,6 @@
       <div class="nav-user-initials" id="dash-nav-initials" style="display:none;"></div>
       <span class="nav-user-name" id="dash-nav-name"></span>
       <i class="hgi-stroke hgi-arrow-down-01" style="font-size:.65rem;color:#94a3b8;margin-left:2px;flex-shrink:0;"></i>
-      <!-- Dropdown -->
       <div class="nav-user-menu" id="dash-nav-menu" style="display:none;" onclick="event.stopPropagation()">
         <div class="num-header">
           <img class="num-avatar" id="dash-num-avatar" src="" alt="" style="display:none;">
@@ -378,7 +691,6 @@
 
 <main class="dash-main">
 
-  <!-- Loading / Error states -->
   <div id="loading" class="dash-loading">
     <div style="margin-bottom:0.75rem;opacity:0.5;font-size:1.5rem;">⋯</div>
     Loading your dashboard…
@@ -388,199 +700,275 @@
     <p id="error-msg">Unable to load your profile. Please <a href="/" style="color:var(--gold);">sign in</a> first.</p>
   </div>
 
-  <!-- Dashboard (shown after auth) -->
   <div id="dashboard" style="display:none;">
 
-    <!-- ① WELCOME HERO STRIP -->
-    <div class="hero-strip">
-      <div class="hero-left">
-        <div class="hero-avatar" id="avatar-initials">?</div>
-        <div class="hero-meta">
-          <h1 class="hero-name" id="user-name">…</h1>
-          <div class="hero-email" id="user-email">…</div>
-          <span class="role-badge" id="user-role">…</span>
-        </div>
-      </div>
-      <div class="hero-right">
-        <span class="status-chip pending" id="status-chip">
-          <i class="hgi-stroke hgi-clock-01" style="font-size:.85rem;"></i>…
-        </span>
-      </div>
-    </div>
+    <!-- ══════════════════════════════════════
+         CLIENT DASHBOARD (role !== 'attorney')
+    ══════════════════════════════════════ -->
+    <div id="client-dashboard" style="display:none;">
 
-    <!-- ② STATUS CARDS ROW -->
-    <div class="stats-row">
-      <div class="stat-card stat-onboarding" id="stat-onboarding">
-        <div class="stat-label">Onboarding</div>
-        <div class="stat-value" id="stat-step">…</div>
-        <div class="stat-sub" id="stat-step-sub">…</div>
-      </div>
-      <div class="stat-card stat-role-card">
-        <div class="stat-label">Account Role</div>
-        <div class="stat-value" id="stat-role">…</div>
-        <div class="stat-sub">Platform access level</div>
-      </div>
-      <div class="stat-card stat-cert-card">
-        <div class="stat-label">Certification</div>
-        <div class="stat-value" id="stat-cert">…</div>
-        <div class="stat-sub" id="stat-cert-sub">…</div>
-      </div>
-      <div class="stat-card stat-kyc-card" id="kyc-card">
-        <div class="stat-label">KYC Status</div>
-        <div class="stat-value" id="stat-kyc">…</div>
-        <div class="stat-sub" id="stat-kyc-sub">…</div>
-      </div>
-    </div>
-
-    <!-- SC Commission stat — full width, only for certified attorneys -->
-    <div class="stat-card stat-sc-card" id="sc-card" style="display:none;margin-bottom:1.5rem;">
-      <div class="stat-label"><i class="hgi-stroke hgi-justice-scale-01" style="font-size:.82rem;vertical-align:middle;margin-right:.3rem;"></i>SC Commission</div>
-      <div class="stat-value" id="stat-sc">…</div>
-      <div class="stat-sub" id="stat-sc-sub">…</div>
-    </div>
-
-    <!-- ③ CERTIFICATE SECTION (shown when certified) -->
-    <div class="dash-section cert-section" id="cert-section" style="display:none;">
-      <div class="section-header">
-        <i class="hgi-stroke hgi-award-01"></i>
-        <span>Your Certificate</span>
-      </div>
-      <div class="cert-id-block" id="cert-id-display">…</div>
-      <div class="cert-actions">
-        <a id="cert-download-btn" href="#" target="_blank" class="btn-gold">
-          <i class="hgi-stroke hgi-download-01" style="font-size:.85rem;"></i>Download Certificate
-        </a>
-        <button class="btn-outline" onclick="copyCertId()">
-          <i class="hgi-stroke hgi-copy-01" style="font-size:.85rem;"></i>Copy Certificate ID
-        </button>
-        <button class="btn-outline" id="btn-regenerate" onclick="regenerateCert()" style="display:none;">
-          <i class="hgi-stroke hgi-refresh" style="font-size:.85rem;"></i>Regenerate Certificate
-        </button>
-      </div>
-    </div>
-
-    <!-- ④ IDENTITY / KYC SECTION -->
-    <div class="dash-section" id="kyc-section">
-      <div class="section-header">
-        <i class="hgi-stroke hgi-user-id-verification"></i>
-        <span>Identity Verification</span>
-      </div>
-
-      <div class="kyc-grid">
-        <div>
-          <div class="kyc-item-label">Liveness Check</div>
-          <div id="kyc-liveness-status" class="kyc-item-value">…</div>
-        </div>
-        <div>
-          <div class="kyc-item-label">ID Upload</div>
-          <div id="kyc-id-status" class="kyc-item-value">…</div>
-        </div>
-        <div>
-          <div class="kyc-item-label">KYC Expiry</div>
-          <div id="kyc-expiry" class="kyc-item-value">…</div>
-        </div>
-      </div>
-
-      <div id="kyc-warning" style="display:none;margin-bottom:0.875rem;" class="notice">
-        <i class="hgi-stroke hgi-alert-02" style="font-size:.9rem;flex-shrink:0;margin-top:1px;"></i>
-        <span>Your KYC verification expires in <strong id="kyc-days-left"></strong> days. Redo KYC before it expires to maintain your certification status.</span>
-      </div>
-      <div id="kyc-expired-warning" style="display:none;margin-bottom:0.875rem;" class="notice danger">
-        <i class="hgi-stroke hgi-cancel-circle" style="font-size:.9rem;flex-shrink:0;margin-top:1px;"></i>
-        <span>Your KYC has expired. Please redo your identity verification.</span>
-      </div>
-
-      <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap;margin-top:0.25rem;">
-        <button class="btn-teal" onclick="redoKyc()" id="btn-redo-kyc" style="display:none;">
-          <i class="hgi-stroke hgi-refresh" style="font-size:.85rem;"></i>Redo KYC Verification
-        </button>
-        <div id="kyc-done-msg" class="kyc-done-msg" style="display:none;">
-          <i class="hgi-stroke hgi-checkmark-circle-01" style="font-size:.9rem;"></i>
-          KYC Verified — <span id="kyc-done-date"></span>
-        </div>
-        <div id="kyc-msg" style="font-size:0.8rem;color:var(--muted);display:none;"></div>
-      </div>
-    </div>
-
-    <!-- ⑤ SC COMMISSION SECTION (attorneys with cert only) -->
-    <div class="dash-section" id="sc-section" style="display:none;">
-      <div class="section-header">
-        <i class="hgi-stroke hgi-justice-scale-01"></i>
-        <span>SC Commission Status</span>
-      </div>
-
-      <div id="sc-status-block" style="margin-bottom:1.25rem;">
-        <div class="sc-status-banner" id="sc-status-banner">
-          <div id="sc-status-icon" style="font-size:1.75rem;flex-shrink:0;margin-top:2px;">
-            <i class="hgi-stroke hgi-clock-01" style="color:var(--amber);"></i>
-          </div>
-          <div>
-            <div style="font-weight:700;font-size:0.95rem;margin-bottom:0.25rem;" id="sc-status-label">Pending SC Activation</div>
-            <div style="font-size:0.8rem;color:var(--muted);line-height:1.6;" id="sc-status-desc">Your ENP commission must be activated by the Supreme Court before you can legally practice as an Electronic Notary Public.</div>
+      <!-- Welcome card -->
+      <div class="client-welcome">
+        <div class="client-welcome-left">
+          <div class="client-avatar" id="client-avatar-el">?</div>
+          <div class="client-welcome-meta">
+            <div class="client-greeting">Welcome back</div>
+            <h1 class="client-name" id="client-name-el">…</h1>
+            <div class="client-email-disp" id="client-email-el">…</div>
+            <span class="client-role-badge" id="client-role-badge-el">…</span>
           </div>
         </div>
-        <div class="sc-steps">
-          <strong style="color:var(--text);display:block;margin-bottom:0.5rem;font-size:0.8rem;">Required steps after certification:</strong>
-          <ol style="padding-left:1.25rem;margin:0;font-size:0.79rem;color:var(--muted);line-height:1.9;">
-            <li>Print your ENP certificate and submit it to the <strong style="color:var(--text);">Supreme Court of the Philippines</strong></li>
-            <li>Complete the SC e-filing at <a href="https://efiling.sc.judiciary.gov.ph" target="_blank" style="color:var(--teal);">efiling.sc.judiciary.gov.ph</a></li>
-            <li>Wait for SC to add you to the national ENP registry</li>
-            <li>Commission status will be updated once SC activates your account</li>
-          </ol>
+        <div class="client-welcome-right">
+          <div class="client-welcome-tagline">Your trusted platform for electronic notarization services.</div>
         </div>
       </div>
 
-      <div class="cert-actions">
-        <a href="https://efiling.sc.judiciary.gov.ph" target="_blank" class="btn-teal">
-          <i class="hgi-stroke hgi-justice-scale-01" style="font-size:.85rem;"></i>Go to SC e-Filing Portal
-        </a>
-        <a id="sc-cert-link" href="#" target="_blank" class="btn-outline" style="display:none;">
-          <i class="hgi-stroke hgi-download-01" style="font-size:.85rem;"></i>Download Certificate for SC Submission
-        </a>
-      </div>
-    </div>
-
-    <!-- ⑥ NOTARIZATION SERVICES (role-based) -->
-    <div class="dash-section" id="booking-actions" style="display:none;">
-      <div class="section-header">
-        <i class="hgi-stroke hgi-calendar-03"></i>
-        <span>Notarization Services</span>
-      </div>
-
-      <div class="services-grid">
-
-        <!-- CLIENT: Find a Notary -->
-        <div id="qa-client-browse" style="display:none;" class="action-card" onclick="window.location.href='/browse'">
-          <div class="action-icon" style="background:rgba(201,168,76,0.12);color:var(--gold);">
+      <!-- Quick action cards -->
+      <div class="client-quick-grid">
+        <a class="quick-card quick-card-purple" href="/browse">
+          <div class="quick-icon quick-icon-purple">
             <i class="hgi-stroke hgi-search-01"></i>
           </div>
-          <div class="action-title">Find a Notary</div>
-          <div class="action-desc">Browse our directory of certified Electronic Notary Publics and book an appointment.</div>
-          <span class="btn-gold action-cta" style="font-size:0.8rem;padding:0.5rem 1rem;">Browse Directory</span>
-        </div>
+          <div class="quick-title">Find a Notary</div>
+          <div class="quick-desc">Browse our directory of certified Electronic Notary Publics near you.</div>
+          <span class="btn-purple quick-cta">Browse Directory</span>
+        </a>
 
-        <!-- CLIENT: My Appointments -->
-        <div id="qa-client-appointments" style="display:none;" class="action-card" onclick="window.location.href='/appointments'">
-          <div class="action-icon" style="background:rgba(14,165,233,0.12);color:var(--teal);">
+        <a class="quick-card quick-card-teal" href="/appointments">
+          <div class="quick-icon quick-icon-teal">
             <i class="hgi-stroke hgi-calendar-check-in-02"></i>
           </div>
-          <div class="action-title">My Appointments</div>
-          <div class="action-desc">View and manage your scheduled notarization appointments and booking history.</div>
-          <span class="btn-teal action-cta" style="font-size:0.8rem;padding:0.5rem 1rem;">View Appointments</span>
-        </div>
+          <div class="quick-title">My Appointments</div>
+          <div class="quick-desc">View and manage your scheduled notarization appointments and history.</div>
+          <span class="btn-teal quick-cta">View Appointments</span>
+        </a>
 
-        <!-- ENP: Manage Appointments -->
-        <div id="qa-enp-appointments" style="display:none;" class="action-card" onclick="window.location.href='/appointments'">
-          <div class="action-icon" style="background:rgba(16,185,129,0.12);color:var(--green);">
-            <i class="hgi-stroke hgi-calendar-check-in-02"></i>
+        <a class="quick-card quick-card-gold" href="/browse">
+          <div class="quick-icon quick-icon-gold">
+            <i class="hgi-stroke hgi-notebook-bookmark"></i>
           </div>
-          <div class="action-title">Manage Appointments</div>
-          <div class="action-desc" id="qa-pending-count">Loading pending requests…</div>
-          <span class="btn-gold action-cta" style="font-size:0.8rem;padding:0.5rem 1rem;">Manage Requests</span>
-        </div>
-
+          <div class="quick-title">Book a Session</div>
+          <div class="quick-desc">Start a new notarization booking with a certified ENP in minutes.</div>
+          <span class="btn-gold quick-cta" style="background:linear-gradient(135deg,#C9A84C,#ddb96e);color:#0D0F1A;font-size:0.78rem;padding:0.45rem 0.9rem;">Book Now</span>
+        </a>
       </div>
-    </div>
+
+      <!-- Status row -->
+      <div class="client-stats-row">
+        <div class="cstat-card cstat-onboarding">
+          <div class="cstat-label">Onboarding</div>
+          <div class="cstat-value" id="client-stat-step">…</div>
+          <div class="cstat-sub" id="client-stat-step-sub">…</div>
+        </div>
+        <div class="cstat-card cstat-role">
+          <div class="cstat-label">Account Role</div>
+          <div class="cstat-value" id="client-stat-role">…</div>
+          <div class="cstat-sub">Platform access level</div>
+        </div>
+        <div class="cstat-card cstat-member">
+          <div class="cstat-label">Member Since</div>
+          <div class="cstat-value" id="client-stat-member">…</div>
+          <div class="cstat-sub" id="client-stat-member-sub">Active account</div>
+        </div>
+      </div>
+
+      <!-- Past appointments (accordion) -->
+      <div class="past-appts-wrap">
+        <div class="past-appts-hdr">
+          <div class="past-appts-title">
+            <i class="hgi-stroke hgi-calendar-03" style="font-size:.9rem;"></i>
+            Past Appointments
+          </div>
+          <a href="/appointments" class="btn-outline" style="font-size:0.75rem;padding:0.4rem 0.875rem;">
+            View All <i class="hgi-stroke hgi-arrow-right-01" style="font-size:.75rem;"></i>
+          </a>
+        </div>
+        <div class="past-appts-list" id="past-appts-list">
+          <div class="past-appts-empty">
+            <i class="hgi-stroke hgi-calendar-03"></i>
+            Loading appointments…
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /#client-dashboard -->
+
+    <!-- ══════════════════════════════════════
+         ENP DASHBOARD (role === 'attorney')
+    ══════════════════════════════════════ -->
+    <div id="enp-dashboard" style="display:none;">
+
+      <!-- Hero strip -->
+      <div class="hero-strip">
+        <div class="hero-left">
+          <div class="hero-avatar" id="avatar-initials">?</div>
+          <div class="hero-meta">
+            <h1 class="hero-name" id="user-name">…</h1>
+            <div class="hero-email" id="user-email">…</div>
+            <span class="role-badge" id="user-role">…</span>
+          </div>
+        </div>
+        <div class="hero-right">
+          <span class="status-chip pending" id="status-chip">
+            <i class="hgi-stroke hgi-clock-01" style="font-size:.85rem;"></i>…
+          </span>
+        </div>
+      </div>
+
+      <!-- Stats row -->
+      <div class="stats-row">
+        <div class="stat-card stat-onboarding" id="stat-onboarding">
+          <div class="stat-label">Onboarding</div>
+          <div class="stat-value" id="stat-step">…</div>
+          <div class="stat-sub" id="stat-step-sub">…</div>
+        </div>
+        <div class="stat-card stat-role-card">
+          <div class="stat-label">Account Role</div>
+          <div class="stat-value" id="stat-role">…</div>
+          <div class="stat-sub">Platform access level</div>
+        </div>
+        <div class="stat-card stat-cert-card">
+          <div class="stat-label">Certification</div>
+          <div class="stat-value" id="stat-cert">…</div>
+          <div class="stat-sub" id="stat-cert-sub">…</div>
+        </div>
+        <div class="stat-card stat-kyc-card" id="kyc-card">
+          <div class="stat-label">KYC Status</div>
+          <div class="stat-value" id="stat-kyc">…</div>
+          <div class="stat-sub" id="stat-kyc-sub">…</div>
+        </div>
+      </div>
+
+      <!-- SC Commission stat card (certified attorneys only) -->
+      <div class="stat-card stat-sc-card" id="sc-card" style="display:none;margin-bottom:1.5rem;">
+        <div class="stat-label"><i class="hgi-stroke hgi-justice-scale-01" style="font-size:.82rem;vertical-align:middle;margin-right:.3rem;"></i>SC Commission</div>
+        <div class="stat-value" id="stat-sc">…</div>
+        <div class="stat-sub" id="stat-sc-sub">…</div>
+      </div>
+
+      <!-- Certificate section -->
+      <div class="dash-section cert-section" id="cert-section" style="display:none;">
+        <div class="section-header">
+          <i class="hgi-stroke hgi-award-01"></i>
+          <span>Your Certificate</span>
+        </div>
+        <div class="cert-id-block" id="cert-id-display">…</div>
+        <div class="cert-actions">
+          <a id="cert-download-btn" href="#" target="_blank" class="btn-gold">
+            <i class="hgi-stroke hgi-download-01" style="font-size:.85rem;"></i>Download Certificate
+          </a>
+          <button class="btn-outline" onclick="copyCertId()">
+            <i class="hgi-stroke hgi-copy-01" style="font-size:.85rem;"></i>Copy Certificate ID
+          </button>
+          <button class="btn-outline" id="btn-regenerate" onclick="regenerateCert()" style="display:none;">
+            <i class="hgi-stroke hgi-refresh" style="font-size:.85rem;"></i>Regenerate Certificate
+          </button>
+        </div>
+      </div>
+
+      <!-- Identity / KYC section -->
+      <div class="dash-section" id="kyc-section">
+        <div class="section-header">
+          <i class="hgi-stroke hgi-user-id-verification"></i>
+          <span>Identity Verification</span>
+        </div>
+        <div class="kyc-grid">
+          <div>
+            <div class="kyc-item-label">Liveness Check</div>
+            <div id="kyc-liveness-status" class="kyc-item-value">…</div>
+          </div>
+          <div>
+            <div class="kyc-item-label">ID Upload</div>
+            <div id="kyc-id-status" class="kyc-item-value">…</div>
+          </div>
+          <div>
+            <div class="kyc-item-label">KYC Expiry</div>
+            <div id="kyc-expiry" class="kyc-item-value">…</div>
+          </div>
+        </div>
+        <div id="kyc-warning" style="display:none;margin-bottom:0.875rem;" class="notice">
+          <i class="hgi-stroke hgi-alert-02" style="font-size:.9rem;flex-shrink:0;margin-top:1px;"></i>
+          <span>Your KYC verification expires in <strong id="kyc-days-left"></strong> days. Redo KYC before it expires to maintain your certification status.</span>
+        </div>
+        <div id="kyc-expired-warning" style="display:none;margin-bottom:0.875rem;" class="notice danger">
+          <i class="hgi-stroke hgi-cancel-circle" style="font-size:.9rem;flex-shrink:0;margin-top:1px;"></i>
+          <span>Your KYC has expired. Please redo your identity verification.</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap;margin-top:0.25rem;">
+          <button class="btn-teal" onclick="redoKyc()" id="btn-redo-kyc" style="display:none;">
+            <i class="hgi-stroke hgi-refresh" style="font-size:.85rem;"></i>Redo KYC Verification
+          </button>
+          <div id="kyc-done-msg" class="kyc-done-msg" style="display:none;">
+            <i class="hgi-stroke hgi-checkmark-circle-01" style="font-size:.9rem;"></i>
+            KYC Verified — <span id="kyc-done-date"></span>
+          </div>
+          <div id="kyc-msg" style="font-size:0.8rem;color:var(--muted);display:none;"></div>
+        </div>
+      </div>
+
+      <!-- SC Commission section (attorneys with cert only) -->
+      <div class="dash-section" id="sc-section" style="display:none;">
+        <div class="section-header">
+          <i class="hgi-stroke hgi-justice-scale-01"></i>
+          <span>SC Commission Status</span>
+        </div>
+        <div id="sc-status-block" style="margin-bottom:1.25rem;">
+          <div class="sc-status-banner" id="sc-status-banner">
+            <div id="sc-status-icon" style="font-size:1.75rem;flex-shrink:0;margin-top:2px;">
+              <i class="hgi-stroke hgi-clock-01" style="color:var(--amber);"></i>
+            </div>
+            <div>
+              <div style="font-weight:700;font-size:0.95rem;margin-bottom:0.25rem;" id="sc-status-label">Pending SC Activation</div>
+              <div style="font-size:0.8rem;color:var(--muted);line-height:1.6;" id="sc-status-desc">Your ENP commission must be activated by the Supreme Court before you can legally practice as an Electronic Notary Public.</div>
+            </div>
+          </div>
+          <div class="sc-steps">
+            <strong style="color:var(--text);display:block;margin-bottom:0.5rem;font-size:0.8rem;">Required steps after certification:</strong>
+            <ol style="padding-left:1.25rem;margin:0;font-size:0.79rem;color:var(--muted);line-height:1.9;">
+              <li>Print your ENP certificate and submit it to the <strong style="color:var(--text);">Supreme Court of the Philippines</strong></li>
+              <li>Complete the SC e-filing at <a href="https://efiling.sc.judiciary.gov.ph" target="_blank" style="color:var(--teal);">efiling.sc.judiciary.gov.ph</a></li>
+              <li>Wait for SC to add you to the national ENP registry</li>
+              <li>Commission status will be updated once SC activates your account</li>
+            </ol>
+          </div>
+        </div>
+        <div class="cert-actions">
+          <a href="https://efiling.sc.judiciary.gov.ph" target="_blank" class="btn-teal">
+            <i class="hgi-stroke hgi-justice-scale-01" style="font-size:.85rem;"></i>Go to SC e-Filing Portal
+          </a>
+          <a id="sc-cert-link" href="#" target="_blank" class="btn-outline" style="display:none;">
+            <i class="hgi-stroke hgi-download-01" style="font-size:.85rem;"></i>Download Certificate for SC Submission
+          </a>
+        </div>
+      </div>
+
+      <!-- Manage Appointments (ENP) -->
+      <div class="dash-section" id="booking-actions">
+        <div class="section-header">
+          <i class="hgi-stroke hgi-calendar-03"></i>
+          <span>Notarization Services</span>
+        </div>
+        <div class="services-grid">
+          <div class="action-card" onclick="window.location.href='/appointments'">
+            <div class="action-icon" style="background:rgba(16,185,129,0.12);color:var(--green);">
+              <i class="hgi-stroke hgi-calendar-check-in-02"></i>
+            </div>
+            <div class="action-title">Manage Appointments</div>
+            <div class="action-desc" id="qa-pending-count">Loading pending requests…</div>
+            <span class="btn-gold action-cta" style="font-size:0.8rem;padding:0.5rem 1rem;">Manage Requests</span>
+          </div>
+          <div class="action-card" onclick="window.location.href='/quicksign'" style="border-color:rgba(124,58,237,0.3);">
+            <div class="action-icon" style="background:rgba(124,58,237,0.15);color:#7c3aed;">
+              <i class="hgi-stroke hgi-lightning-02"></i>
+            </div>
+            <div class="action-title">QuickSign</div>
+            <div class="action-desc">Upload, plot, and send for signing in minutes — no live meeting required.</div>
+            <span class="btn-gold action-cta" style="font-size:0.8rem;padding:0.5rem 1rem;background:rgba(124,58,237,0.18);color:#a78bfa;border-color:rgba(124,58,237,0.35);">Start QuickSign</span>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /#enp-dashboard -->
 
   </div><!-- /#dashboard -->
 
@@ -600,31 +988,30 @@ async function loadDashboard() {
     }
     const user = await res.json();
 
-    // Avatar — use SSO picture if available, else initials
     const name = ((user.first_name || '') + ' ' + (user.last_name || '')).trim() || user.email || '?';
     const initials = name.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2);
-    const avatarEl = document.getElementById('avatar-initials');
+    const roleLabel = { attorney: 'Attorney / ENP', client: 'Client / Principal', admin: 'Administrator' }[user.role] || user.role || 'User';
+
+    // ── Populate nav user info ──
+    const navName     = document.getElementById('dash-nav-name');
+    const navInitials = document.getElementById('dash-nav-initials');
+    const navAvatar   = document.getElementById('dash-nav-avatar');
+    const numName     = document.getElementById('dash-num-name');
+    const numEmail    = document.getElementById('dash-num-email');
+    const numAvatar   = document.getElementById('dash-num-avatar');
+    const numInitials = document.getElementById('dash-num-initials');
+    if (navName) navName.textContent = name.split(' ')[0];
+    if (numName) numName.textContent = name;
+    if (numEmail) numEmail.textContent = user.email || '';
     if (user.picture) {
-      avatarEl.innerHTML = '';
-      avatarEl.style.padding = '0';
-      avatarEl.style.background = 'none';
-      const img = document.createElement('img');
-      img.src = user.picture;
-      img.style.cssText = 'width:100%;height:100%;border-radius:50%;object-fit:cover;';
-      img.onerror = function() { avatarEl.textContent = initials; avatarEl.style.background = ''; };
-      avatarEl.appendChild(img);
+      if (navAvatar) { navAvatar.src = user.picture; navAvatar.style.display = ''; }
+      if (numAvatar) { numAvatar.src = user.picture; numAvatar.style.display = ''; }
     } else {
-      avatarEl.textContent = initials;
+      if (navInitials) { navInitials.textContent = initials; navInitials.style.display = 'flex'; }
+      if (numInitials) { numInitials.textContent = initials; numInitials.style.display = 'flex'; }
     }
 
-    // Name / role / email
-    document.getElementById('user-name').textContent = name;
-    document.getElementById('user-email').textContent = user.email || '';
-    const roleLabel = { attorney: 'Attorney / ENP', client: 'Client / Principal', admin: 'Administrator' }[user.role] || user.role || 'User';
-    document.getElementById('user-role').textContent = roleLabel;
-    document.getElementById('stat-role').textContent = roleLabel;
-
-    // Role-aware nav links
+    // ── Role-aware nav links ──
     const dashNavLinks = document.getElementById('dash-nav-links');
     if (dashNavLinks) {
       if (user.role === 'client') {
@@ -644,182 +1031,13 @@ async function loadDashboard() {
       }
     }
 
-    // Role-aware booking actions
-    const bookingActions = document.getElementById('booking-actions');
-    if (bookingActions) {
-      bookingActions.style.display = '';
-      if (user.role === 'client') {
-        document.getElementById('qa-client-browse').style.display = '';
-        document.getElementById('qa-client-appointments').style.display = '';
-      } else if (user.role === 'attorney') {
-        const enpCard = document.getElementById('qa-enp-appointments');
-        if (enpCard) enpCard.style.display = '';
-        // Load pending count
-        fetch('/api/appointments', { credentials: 'include' })
-          .then(r => r.json())
-          .then(apts => {
-            const pending = apts.filter(a => a.status === 'PENDING').length;
-            const el = document.getElementById('qa-pending-count');
-            if (el) el.textContent = pending > 0 ? pending + ' pending request' + (pending > 1 ? 's' : '') : 'No pending requests';
-          }).catch(() => {});
-      }
-    }
-
-    // Status chip
-    const certStatus = user.certificate_status || 'none';
-    const chip = document.getElementById('status-chip');
-    if (certStatus === 'certified') {
-      chip.className = 'status-chip certified'; chip.innerHTML = '<i class="hgi-stroke hgi-checkmark-circle-01" style="font-size:.85rem;vertical-align:middle;margin-right:.25rem;"></i>ENP Certified';
+    // ── Route to correct dashboard ──
+    if (user.role === 'attorney') {
+      populateEnpDashboard(user, name, initials, roleLabel);
+      document.getElementById('enp-dashboard').style.display = '';
     } else {
-      chip.className = 'status-chip pending'; chip.innerHTML = '<i class="hgi-stroke hgi-clock-01" style="font-size:.85rem;vertical-align:middle;margin-right:.25rem;"></i>Pending Certification';
-    }
-
-    // Onboarding step
-    const stepMap = {
-      role_select:'Choose Role', profile:'Complete Profile', test:'Take Exam',
-      kyc:'KYC Upload', liveness:'Face Verification', certificate:'Download Certificate',
-      sc_redirect:'SC Submission', certified:'Complete'
-    };
-    const step = user.onboarding_step || 'role_select';
-    // If user has a cert or is certified, always show Complete regardless of step
-    const isComplete = step === 'certified' || user.certificate_id || certStatus === 'certified';
-    document.getElementById('stat-step').textContent = isComplete ? 'Complete' : (stepMap[step] || step);
-    document.getElementById('stat-step-sub').textContent = isComplete ? 'All steps complete' : 'In progress';
-
-    // Cert stats
-    document.getElementById('stat-cert').textContent = certStatus === 'none' ? 'Not Issued' : certStatus === 'certified' ? 'ENP Certified' : certStatus.charAt(0).toUpperCase() + certStatus.slice(1);
-    document.getElementById('stat-cert-sub').textContent = user.certificate_id ? `ID: ${user.certificate_id.slice(-8)}` : 'Complete onboarding to receive';
-
-    // Cert box
-    if (user.certificate_id) {
-      document.getElementById('cert-section').style.display = '';
-      document.getElementById('cert-id-display').textContent = user.certificate_id;
-      document.getElementById('cert-download-btn').href = `/api/certificate/${user.certificate_id}`;
-      document.getElementById('btn-regenerate').style.display = 'inline-flex';
-    }
-
-    // KYC status
-    const kycVerified = user.liveness_verified || false;
-    const idUploaded = user.kyc_id_uploaded || false;
-    const kycVerifiedAt = user.kyc_verified_at || null;
-    const KYC_EXPIRY_DAYS = 14;
-
-    document.getElementById('kyc-liveness-status').innerHTML = kycVerified
-      ? '<span style="color:#10B981;"><i class="hgi-stroke hgi-checkmark-circle-01" style="font-size:.8rem;vertical-align:middle;margin-right:.2rem;"></i>Verified</span>'
-      : '<span style="color:#F59E0B;"><i class="hgi-stroke hgi-clock-01" style="font-size:.8rem;vertical-align:middle;margin-right:.2rem;"></i>Pending</span>';
-    document.getElementById('kyc-id-status').innerHTML = idUploaded
-      ? '<span style="color:#10B981;"><i class="hgi-stroke hgi-checkmark-circle-01" style="font-size:.8rem;vertical-align:middle;margin-right:.2rem;"></i>Uploaded</span>'
-      : '<span style="color:#F59E0B;"><i class="hgi-stroke hgi-clock-01" style="font-size:.8rem;vertical-align:middle;margin-right:.2rem;"></i>Pending</span>';
-
-    // Expiry countdown
-    const statKyc = document.getElementById('stat-kyc');
-    const statKycSub = document.getElementById('stat-kyc-sub');
-    const redoBtn = document.getElementById('btn-redo-kyc');
-    const doneMsgEl = document.getElementById('kyc-done-msg');
-    const doneDateEl = document.getElementById('kyc-done-date');
-
-    if (kycVerified && kycVerifiedAt) {
-      const verifiedDate = new Date(kycVerifiedAt);
-      const expiryDate = new Date(verifiedDate.getTime() + KYC_EXPIRY_DAYS * 86400000);
-      const daysLeft = Math.ceil((expiryDate - Date.now()) / 86400000);
-      const expiryStr = expiryDate.toLocaleDateString('en-PH', {month:'short',day:'numeric',year:'numeric'});
-      document.getElementById('kyc-expiry').innerHTML = daysLeft > 0
-        ? `<span style="color:${daysLeft <= 3 ? '#F87171' : daysLeft <= 7 ? '#F59E0B' : '#10B981'};">${daysLeft}d left (${expiryStr})</span>`
-        : '<span style="color:#F87171;">Expired</span>';
-      if (daysLeft <= 0) {
-        document.getElementById('kyc-expired-warning').style.display = 'flex';
-        statKyc.innerHTML = '<span style="color:#F87171;">Expired</span>';
-        statKycSub.textContent = 'Redo KYC required';
-        if (redoBtn) redoBtn.style.display = 'inline-flex';
-        if (doneMsgEl) doneMsgEl.style.display = 'none';
-      } else if (daysLeft <= 5) {
-        document.getElementById('kyc-warning').style.display = 'flex';
-        document.getElementById('kyc-days-left').textContent = daysLeft;
-        statKyc.innerHTML = `<span style="color:#F59E0B;">Expiring soon</span>`;
-        statKycSub.textContent = `${daysLeft} days left`;
-        if (redoBtn) redoBtn.style.display = 'inline-flex';
-        if (doneMsgEl) { doneMsgEl.style.display = 'flex'; if (doneDateEl) doneDateEl.textContent = `expires ${expiryStr}`; }
-      } else {
-        statKyc.innerHTML = '<span style="color:#10B981;"><i class="hgi-stroke hgi-shield-check" style="font-size:.8rem;vertical-align:middle;margin-right:.2rem;"></i>Valid</span>';
-        statKycSub.textContent = `Expires in ${daysLeft} days`;
-        // Hide redo button, show done message
-        if (redoBtn) redoBtn.style.display = 'none';
-        if (doneMsgEl) { doneMsgEl.style.display = 'flex'; if (doneDateEl) doneDateEl.textContent = `expires ${expiryStr}`; }
-      }
-    } else if (kycVerified) {
-      // Verified but no timestamp stored
-      document.getElementById('kyc-expiry').innerHTML = '<span style="color:#8B90A8;">Unknown</span>';
-      statKyc.innerHTML = '<span style="color:#10B981;"><i class="hgi-stroke hgi-checkmark-circle-01" style="font-size:.8rem;vertical-align:middle;margin-right:.2rem;"></i>Verified</span>';
-      statKycSub.textContent = 'KYC complete';
-      if (redoBtn) redoBtn.style.display = 'none';
-      if (doneMsgEl) { doneMsgEl.style.display = 'flex'; if (doneDateEl) doneDateEl.textContent = 'verified'; }
-    } else {
-      document.getElementById('kyc-expiry').innerHTML = '<span style="color:#8B90A8;">N/A</span>';
-      statKyc.innerHTML = '<span style="color:#F59E0B;">Not done</span>';
-      statKycSub.textContent = 'Complete KYC verification';
-      if (redoBtn) redoBtn.style.display = 'inline-flex';
-      if (doneMsgEl) doneMsgEl.style.display = 'none';
-    }
-
-    // Populate nav user info
-    const navName = document.getElementById('dash-nav-name');
-    const navInitials = document.getElementById('dash-nav-initials');
-    const navAvatar = document.getElementById('dash-nav-avatar');
-    const numName = document.getElementById('dash-num-name');
-    const numEmail = document.getElementById('dash-num-email');
-    const numAvatar = document.getElementById('dash-num-avatar');
-    const numInitials = document.getElementById('dash-num-initials');
-    if (navName) navName.textContent = name.split(' ')[0]; // first name only in nav
-    if (numName) numName.textContent = name;
-    if (numEmail) numEmail.textContent = user.email || '';
-    if (user.picture) {
-      if (navAvatar) { navAvatar.src = user.picture; navAvatar.style.display = ''; }
-      if (numAvatar) { numAvatar.src = user.picture; numAvatar.style.display = ''; }
-    } else {
-      if (navInitials) { navInitials.textContent = initials; navInitials.style.display = 'flex'; }
-      if (numInitials) { numInitials.textContent = initials; numInitials.style.display = 'flex'; }
-    }
-
-    // SC Commission Status (attorneys only)
-    if (user.role === 'attorney' && user.certificate_id) {
-      const scStatus = user.sc_commission_status || 'pending';
-      const scCard = document.getElementById('sc-card');
-      const scSection = document.getElementById('sc-section');
-      const statSc = document.getElementById('stat-sc');
-      const statScSub = document.getElementById('stat-sc-sub');
-      const scBanner = document.getElementById('sc-status-banner');
-      const scIcon = document.getElementById('sc-status-icon');
-      const scLabel = document.getElementById('sc-status-label');
-      const scDesc = document.getElementById('sc-status-desc');
-      const scCertLink = document.getElementById('sc-cert-link');
-
-      if (scCard) scCard.style.display = '';
-      if (scSection) scSection.style.display = '';
-      if (scCertLink && user.certificate_id) {
-        scCertLink.href = `/api/certificate/${user.certificate_id}`;
-        scCertLink.style.display = 'inline-flex';
-      }
-
-      if (scStatus === 'active') {
-        if (statSc) statSc.innerHTML = '<span style="color:#10B981;"><i class="hgi-stroke hgi-checkmark-circle-01" style="font-size:.8rem;vertical-align:middle;margin-right:.2rem;"></i>Active</span>';
-        if (statScSub) statScSub.textContent = 'Commission active — you may practice';
-        if (scBanner) scBanner.style.background = 'rgba(16,185,129,0.08)';
-        if (scIcon) scIcon.innerHTML = '<i class="hgi-stroke hgi-checkmark-circle-01" style="font-size:1.75rem;color:#10B981;"></i>';
-        if (scLabel) scLabel.textContent = 'Commission Active';
-        if (scDesc) scDesc.textContent = 'Your ENP commission has been activated by the Supreme Court. You are authorized to perform electronic notarizations.';
-      } else if (scStatus === 'rejected') {
-        if (statSc) statSc.innerHTML = '<span style="color:#F87171;"><i class="hgi-stroke hgi-cancel-circle" style="font-size:.8rem;vertical-align:middle;margin-right:.2rem;"></i>Rejected</span>';
-        if (statScSub) statScSub.textContent = 'Contact the SC for details';
-        if (scBanner) scBanner.style.background = 'rgba(239,68,68,0.08)';
-        if (scIcon) scIcon.innerHTML = '<i class="hgi-stroke hgi-cancel-circle" style="font-size:1.75rem;color:#F87171;"></i>';
-        if (scLabel) scLabel.textContent = 'Commission Rejected';
-        if (scDesc) scDesc.textContent = 'Your application was rejected by the Supreme Court. Please contact the SC directly for further guidance.';
-      } else {
-        // pending (default)
-        if (statSc) statSc.innerHTML = '<span style="color:#F59E0B;"><i class="hgi-stroke hgi-clock-01" style="font-size:.8rem;vertical-align:middle;margin-right:.2rem;"></i>Pending</span>';
-        if (statScSub) statScSub.textContent = 'Awaiting SC activation';
-        if (scBanner) scBanner.style.background = 'rgba(245,158,11,0.06)';
-      }
+      populateClientDashboard(user, name, initials, roleLabel);
+      document.getElementById('client-dashboard').style.display = '';
     }
 
     document.getElementById('loading').style.display = 'none';
@@ -827,12 +1045,332 @@ async function loadDashboard() {
 
   } catch(e) {
     document.getElementById('loading').style.display = 'none';
-    // Only show "not signed in" if truly unauthenticated after refresh attempt
-    // Only show error after all retries failed — not on transient OAuth cookie delay
     document.getElementById('error-msg').textContent = 'Please sign in to continue.';
     document.getElementById('error').style.display = '';
     setTimeout(() => { window.location.href = '/?sso=1'; }, 1500);
   }
+}
+
+/* ── CLIENT DASHBOARD ── */
+function populateClientDashboard(user, name, initials, roleLabel) {
+  // Avatar
+  const avatarEl = document.getElementById('client-avatar-el');
+  if (user.picture) {
+    avatarEl.innerHTML = '';
+    avatarEl.style.padding = '0';
+    avatarEl.style.background = 'none';
+    const img = document.createElement('img');
+    img.src = user.picture;
+    img.style.cssText = 'width:100%;height:100%;border-radius:50%;object-fit:cover;';
+    img.onerror = function() { avatarEl.textContent = initials; avatarEl.style.background = ''; };
+    avatarEl.appendChild(img);
+  } else {
+    avatarEl.textContent = initials;
+  }
+
+  document.getElementById('client-name-el').textContent = name;
+  document.getElementById('client-email-el').textContent = user.email || '';
+  document.getElementById('client-role-badge-el').textContent = roleLabel;
+  document.getElementById('client-stat-role').textContent = roleLabel;
+
+  // Onboarding step
+  const stepMap = {
+    role_select:'Choose Role', profile:'Complete Profile', test:'Take Exam',
+    kyc:'KYC Upload', liveness:'Face Verification', certificate:'Download Certificate',
+    sc_redirect:'SC Submission', certified:'Complete'
+  };
+  const step = user.onboarding_step || 'role_select';
+  const isComplete = step === 'certified' || user.certificate_id || (user.certificate_status === 'certified');
+  document.getElementById('client-stat-step').textContent = isComplete ? 'Complete' : (stepMap[step] || step);
+  document.getElementById('client-stat-step-sub').textContent = isComplete ? 'All steps complete' : 'In progress';
+
+  // Member since
+  const memberEl = document.getElementById('client-stat-member');
+  const memberSubEl = document.getElementById('client-stat-member-sub');
+  if (user.created_at) {
+    try {
+      const d = new Date(user.created_at);
+      memberEl.textContent = d.toLocaleDateString('en-PH', { month: 'short', year: 'numeric' });
+      memberSubEl.textContent = 'Member since ' + d.getFullYear();
+    } catch(e) {
+      memberEl.textContent = 'N/A';
+    }
+  } else {
+    memberEl.textContent = 'N/A';
+    memberSubEl.textContent = 'Active account';
+  }
+
+  // Past appointments — accordion with expandable document list
+  fetch('/api/appointments', { credentials: 'include' })
+    .then(r => r.json())
+    .then(apts => {
+      const listEl = document.getElementById('past-appts-list');
+      if (!listEl) return;
+
+      const sorted = Array.isArray(apts)
+        ? apts.slice().sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0)).slice(0, 10)
+        : [];
+
+      if (sorted.length === 0) {
+        listEl.innerHTML = `
+          <div class="past-appts-empty">
+            <i class="hgi-stroke hgi-calendar-03"></i>
+            No appointments yet — <a href="/browse" style="color:var(--teal);">find a notary</a> to book your first session.
+          </div>`;
+        return;
+      }
+
+      listEl.innerHTML = sorted.map((a, idx) => {
+        // Date
+        let dateStr = '';
+        try {
+          const d = new Date(a.created_at || a.scheduled_at || a.date || '');
+          if (!isNaN(d)) dateStr = d.toLocaleDateString('en-PH', { month:'short', day:'numeric', year:'numeric' });
+        } catch(e) {}
+
+        // Status badge
+        const raw = (a.session_status || a.status || 'pending').toLowerCase();
+        let bClass, bLabel;
+        if (raw === 'completed' || raw === 'done') {
+          bClass = 'sess-completed'; bLabel = 'Completed';
+        } else if (raw === 'active' || raw === 'in_progress' || raw === 'ongoing') {
+          bClass = 'sess-active'; bLabel = 'Active';
+        } else if (raw === 'scheduled' || raw === 'confirmed') {
+          bClass = 'sess-scheduled'; bLabel = 'Scheduled';
+        } else {
+          bClass = 'sess-pending'; bLabel = 'Pending';
+        }
+
+        // Meta line
+        const notaryName = a.enp_name || a.attorney_name || a.notary_name || '';
+        const clientName = a.client_name || '';
+        const metaParts = [];
+        if (dateStr) metaParts.push(dateStr);
+        if (notaryName) metaParts.push('ENP: ' + notaryName);
+        else if (clientName) metaParts.push(clientName);
+
+        const notType = a.notarization_type || 'Notarization Session';
+
+        // Documents
+        const docs = Array.isArray(a.session_documents) ? a.session_documents : [];
+        const docsHtml = docs.length === 0
+          ? '<div style="font-size:0.78rem;color:var(--muted);padding:0.375rem 0;">No documents recorded for this session.</div>'
+          : docs.map(doc => {
+              const dcState = (doc.dc_workflow_state || '').toLowerCase();
+              const signers = Array.isArray(doc.signers) ? doc.signers : [];
+              const allSigned = signers.length > 0 && signers.every(s => s.signed || s.status === 'signed' || s.status === 'completed');
+              const isSigned = dcState === 'completed' || dcState === 'notarized' || dcState === 'signed' || allSigned;
+              const chipClass = isSigned ? 'doc-chip doc-signed' : 'doc-chip doc-unsigned';
+              const chipIcon  = isSigned
+                ? '<i class="hgi-stroke hgi-tick-01" style="font-size:.7rem;margin-right:2px;vertical-align:middle;"></i>'
+                : '<i class="hgi-stroke hgi-clock-01" style="font-size:.7rem;margin-right:2px;vertical-align:middle;"></i>';
+              const chipLabel = isSigned ? 'Signed' : 'Pending';
+              const dcLink = doc.sign_link
+                ? `<a href="${doc.sign_link}" target="_blank" rel="noopener" class="doc-dc-link"><i class="hgi-stroke hgi-link-01" style="font-size:.72rem;"></i>DoconChain</a>`
+                : '';
+              const docName = (doc.name || 'Document').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+              return `
+                <div class="doc-row">
+                  <div class="doc-ico"><i class="hgi-stroke hgi-document-01"></i></div>
+                  <span class="doc-name" title="${docName}">${docName}</span>
+                  <span class="${chipClass}">${chipIcon}${chipLabel}</span>
+                  ${dcLink}
+                </div>`;
+            }).join('');
+
+        const cardId = 'pa-card-' + idx;
+        return `
+          <div class="past-appt-card" id="${cardId}">
+            <div class="past-appt-hdr" onclick="toggleAppt('${cardId}')">
+              <div class="past-appt-left">
+                <div class="past-appt-type">${notType.replace(/</g,'&lt;')}</div>
+                <div class="past-appt-meta">${metaParts.join(' · ')}</div>
+              </div>
+              <div class="past-appt-right">
+                <span class="sess-badge ${bClass}">${bLabel}</span>
+                <i class="hgi-stroke hgi-chevron-down past-appt-chevron"></i>
+              </div>
+            </div>
+            <div class="past-appt-docs">
+              <div class="past-appt-docs-inner">
+                <div class="doc-list-lbl">
+                  <i class="hgi-stroke hgi-document-01" style="font-size:.72rem;vertical-align:middle;margin-right:.25rem;"></i>
+                  Documents (${docs.length})
+                </div>
+                ${docsHtml}
+              </div>
+            </div>
+          </div>`;
+      }).join('');
+    })
+    .catch(() => {
+      const listEl = document.getElementById('past-appts-list');
+      if (listEl) listEl.innerHTML = `<div class="past-appts-empty"><i class="hgi-stroke hgi-calendar-03"></i>Unable to load appointments.</div>`;
+    });
+}
+
+/* ── ENP DASHBOARD ── */
+function populateEnpDashboard(user, name, initials, roleLabel) {
+  // Avatar
+  const avatarEl = document.getElementById('avatar-initials');
+  if (user.picture) {
+    avatarEl.innerHTML = '';
+    avatarEl.style.padding = '0';
+    avatarEl.style.background = 'none';
+    const img = document.createElement('img');
+    img.src = user.picture;
+    img.style.cssText = 'width:100%;height:100%;border-radius:50%;object-fit:cover;';
+    img.onerror = function() { avatarEl.textContent = initials; avatarEl.style.background = ''; };
+    avatarEl.appendChild(img);
+  } else {
+    avatarEl.textContent = initials;
+  }
+
+  document.getElementById('user-name').textContent = name;
+  document.getElementById('user-email').textContent = user.email || '';
+  document.getElementById('user-role').textContent = roleLabel;
+  document.getElementById('stat-role').textContent = roleLabel;
+
+  // Status chip
+  const certStatus = user.certificate_status || 'none';
+  const chip = document.getElementById('status-chip');
+  if (certStatus === 'certified') {
+    chip.className = 'status-chip certified';
+    chip.innerHTML = '<i class="hgi-stroke hgi-checkmark-circle-01" style="font-size:.85rem;vertical-align:middle;margin-right:.25rem;"></i>ENP Certified';
+  } else {
+    chip.className = 'status-chip pending';
+    chip.innerHTML = '<i class="hgi-stroke hgi-clock-01" style="font-size:.85rem;vertical-align:middle;margin-right:.25rem;"></i>Pending Certification';
+  }
+
+  // Onboarding step
+  const stepMap = {
+    role_select:'Choose Role', profile:'Complete Profile', test:'Take Exam',
+    kyc:'KYC Upload', liveness:'Face Verification', certificate:'Download Certificate',
+    sc_redirect:'SC Submission', certified:'Complete'
+  };
+  const step = user.onboarding_step || 'role_select';
+  const isComplete = step === 'certified' || user.certificate_id || certStatus === 'certified';
+  document.getElementById('stat-step').textContent = isComplete ? 'Complete' : (stepMap[step] || step);
+  document.getElementById('stat-step-sub').textContent = isComplete ? 'All steps complete' : 'In progress';
+
+  // Cert stats
+  document.getElementById('stat-cert').textContent = certStatus === 'none' ? 'Not Issued' : certStatus === 'certified' ? 'ENP Certified' : certStatus.charAt(0).toUpperCase() + certStatus.slice(1);
+  document.getElementById('stat-cert-sub').textContent = user.certificate_id ? `ID: ${user.certificate_id.slice(-8)}` : 'Complete onboarding to receive';
+
+  // Cert box
+  if (user.certificate_id) {
+    document.getElementById('cert-section').style.display = '';
+    document.getElementById('cert-id-display').textContent = user.certificate_id;
+    document.getElementById('cert-download-btn').href = `/api/certificate/${user.certificate_id}`;
+    document.getElementById('btn-regenerate').style.display = 'inline-flex';
+  }
+
+  // KYC status
+  const kycVerified   = user.liveness_verified || false;
+  const idUploaded    = user.kyc_id_uploaded || false;
+  const kycVerifiedAt = user.kyc_verified_at || null;
+  const KYC_EXPIRY_DAYS = 14;
+
+  document.getElementById('kyc-liveness-status').innerHTML = kycVerified
+    ? '<span style="color:#10B981;"><i class="hgi-stroke hgi-checkmark-circle-01" style="font-size:.8rem;vertical-align:middle;margin-right:.2rem;"></i>Verified</span>'
+    : '<span style="color:#F59E0B;"><i class="hgi-stroke hgi-clock-01" style="font-size:.8rem;vertical-align:middle;margin-right:.2rem;"></i>Pending</span>';
+  document.getElementById('kyc-id-status').innerHTML = idUploaded
+    ? '<span style="color:#10B981;"><i class="hgi-stroke hgi-checkmark-circle-01" style="font-size:.8rem;vertical-align:middle;margin-right:.2rem;"></i>Uploaded</span>'
+    : '<span style="color:#F59E0B;"><i class="hgi-stroke hgi-clock-01" style="font-size:.8rem;vertical-align:middle;margin-right:.2rem;"></i>Pending</span>';
+
+  const statKyc   = document.getElementById('stat-kyc');
+  const statKycSub = document.getElementById('stat-kyc-sub');
+  const redoBtn   = document.getElementById('btn-redo-kyc');
+  const doneMsgEl = document.getElementById('kyc-done-msg');
+  const doneDateEl = document.getElementById('kyc-done-date');
+
+  if (kycVerified && kycVerifiedAt) {
+    const verifiedDate = new Date(kycVerifiedAt);
+    const expiryDate   = new Date(verifiedDate.getTime() + KYC_EXPIRY_DAYS * 86400000);
+    const daysLeft     = Math.ceil((expiryDate - Date.now()) / 86400000);
+    const expiryStr    = expiryDate.toLocaleDateString('en-PH', {month:'short',day:'numeric',year:'numeric'});
+    document.getElementById('kyc-expiry').innerHTML = daysLeft > 0
+      ? `<span style="color:${daysLeft <= 3 ? '#F87171' : daysLeft <= 7 ? '#F59E0B' : '#10B981'};">${daysLeft}d left (${expiryStr})</span>`
+      : '<span style="color:#F87171;">Expired</span>';
+    if (daysLeft <= 0) {
+      document.getElementById('kyc-expired-warning').style.display = 'flex';
+      statKyc.innerHTML = '<span style="color:#F87171;">Expired</span>';
+      statKycSub.textContent = 'Redo KYC required';
+      if (redoBtn) redoBtn.style.display = 'inline-flex';
+      if (doneMsgEl) doneMsgEl.style.display = 'none';
+    } else if (daysLeft <= 5) {
+      document.getElementById('kyc-warning').style.display = 'flex';
+      document.getElementById('kyc-days-left').textContent = daysLeft;
+      statKyc.innerHTML = `<span style="color:#F59E0B;">Expiring soon</span>`;
+      statKycSub.textContent = `${daysLeft} days left`;
+      if (redoBtn) redoBtn.style.display = 'inline-flex';
+      if (doneMsgEl) { doneMsgEl.style.display = 'flex'; if (doneDateEl) doneDateEl.textContent = `expires ${expiryStr}`; }
+    } else {
+      statKyc.innerHTML = '<span style="color:#10B981;"><i class="hgi-stroke hgi-shield-check" style="font-size:.8rem;vertical-align:middle;margin-right:.2rem;"></i>Valid</span>';
+      statKycSub.textContent = `Expires in ${daysLeft} days`;
+      if (redoBtn) redoBtn.style.display = 'none';
+      if (doneMsgEl) { doneMsgEl.style.display = 'flex'; if (doneDateEl) doneDateEl.textContent = `expires ${expiryStr}`; }
+    }
+  } else if (kycVerified) {
+    document.getElementById('kyc-expiry').innerHTML = '<span style="color:#8B90A8;">Unknown</span>';
+    statKyc.innerHTML = '<span style="color:#10B981;"><i class="hgi-stroke hgi-checkmark-circle-01" style="font-size:.8rem;vertical-align:middle;margin-right:.2rem;"></i>Verified</span>';
+    statKycSub.textContent = 'KYC complete';
+    if (redoBtn) redoBtn.style.display = 'none';
+    if (doneMsgEl) { doneMsgEl.style.display = 'flex'; if (doneDateEl) doneDateEl.textContent = 'verified'; }
+  } else {
+    document.getElementById('kyc-expiry').innerHTML = '<span style="color:#8B90A8;">N/A</span>';
+    statKyc.innerHTML = '<span style="color:#F59E0B;">Not done</span>';
+    statKycSub.textContent = 'Complete KYC verification';
+    if (redoBtn) redoBtn.style.display = 'inline-flex';
+    if (doneMsgEl) doneMsgEl.style.display = 'none';
+  }
+
+  // SC Commission Status (certified attorneys only)
+  if (user.certificate_id) {
+    const scStatus  = user.sc_commission_status || 'pending';
+    const scCard    = document.getElementById('sc-card');
+    const scSection = document.getElementById('sc-section');
+    const statSc    = document.getElementById('stat-sc');
+    const statScSub = document.getElementById('stat-sc-sub');
+    const scBanner  = document.getElementById('sc-status-banner');
+    const scIcon    = document.getElementById('sc-status-icon');
+    const scLabel   = document.getElementById('sc-status-label');
+    const scDesc    = document.getElementById('sc-status-desc');
+    const scCertLink = document.getElementById('sc-cert-link');
+
+    if (scCard) scCard.style.display = '';
+    if (scSection) scSection.style.display = '';
+    if (scCertLink) { scCertLink.href = `/api/certificate/${user.certificate_id}`; scCertLink.style.display = 'inline-flex'; }
+
+    if (scStatus === 'active') {
+      if (statSc) statSc.innerHTML = '<span style="color:#10B981;"><i class="hgi-stroke hgi-checkmark-circle-01" style="font-size:.8rem;vertical-align:middle;margin-right:.2rem;"></i>Active</span>';
+      if (statScSub) statScSub.textContent = 'Commission active — you may practice';
+      if (scBanner) scBanner.style.background = 'rgba(16,185,129,0.08)';
+      if (scIcon) scIcon.innerHTML = '<i class="hgi-stroke hgi-checkmark-circle-01" style="font-size:1.75rem;color:#10B981;"></i>';
+      if (scLabel) scLabel.textContent = 'Commission Active';
+      if (scDesc) scDesc.textContent = 'Your ENP commission has been activated by the Supreme Court. You are authorized to perform electronic notarizations.';
+    } else if (scStatus === 'rejected') {
+      if (statSc) statSc.innerHTML = '<span style="color:#F87171;"><i class="hgi-stroke hgi-cancel-circle" style="font-size:.8rem;vertical-align:middle;margin-right:.2rem;"></i>Rejected</span>';
+      if (statScSub) statScSub.textContent = 'Contact the SC for details';
+      if (scBanner) scBanner.style.background = 'rgba(239,68,68,0.08)';
+      if (scIcon) scIcon.innerHTML = '<i class="hgi-stroke hgi-cancel-circle" style="font-size:1.75rem;color:#F87171;"></i>';
+      if (scLabel) scLabel.textContent = 'Commission Rejected';
+      if (scDesc) scDesc.textContent = 'Your application was rejected by the Supreme Court. Please contact the SC directly for further guidance.';
+    } else {
+      if (statSc) statSc.innerHTML = '<span style="color:#F59E0B;"><i class="hgi-stroke hgi-clock-01" style="font-size:.8rem;vertical-align:middle;margin-right:.2rem;"></i>Pending</span>';
+      if (statScSub) statScSub.textContent = 'Awaiting SC activation';
+      if (scBanner) scBanner.style.background = 'rgba(245,158,11,0.06)';
+    }
+  }
+
+  // Pending appointment count
+  fetch('/api/appointments', { credentials: 'include' })
+    .then(r => r.json())
+    .then(apts => {
+      const pending = apts.filter(a => a.status === 'PENDING').length;
+      const el = document.getElementById('qa-pending-count');
+      if (el) el.textContent = pending > 0 ? pending + ' pending request' + (pending > 1 ? 's' : '') : 'No pending requests';
+    }).catch(() => {});
 }
 
 function copyCertId() {
@@ -941,6 +1479,12 @@ async function signOut() {
   window.location.href = '/';
 }
 
+function toggleAppt(cardId) {
+  const card = document.getElementById(cardId);
+  if (!card) return;
+  card.classList.toggle('pa-open');
+}
+
 loadDashboard();
 </script>
 
@@ -961,7 +1505,6 @@ loadDashboard();
       font-size:18px;cursor:pointer;color:#6b7280;line-height:1;padding:4px;
     ">✕</button>
 
-    <!-- Header -->
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:1.5rem;">
       <img src="/qlegal-logo-sm.png" style="width:36px;height:36px;object-fit:contain;border-radius:8px;" onerror="this.style.display='none'">
       <div>
@@ -970,10 +1513,8 @@ loadDashboard();
       </div>
     </div>
 
-    <!-- Alert -->
     <div id="ql-admin-alert" style="display:none;margin-bottom:1rem;padding:0.6rem 0.9rem;border-radius:8px;font-size:0.8rem;"></div>
 
-    <!-- Username -->
     <div style="margin-bottom:0.85rem;">
       <label style="font-size:0.72rem;font-weight:600;color:#8b90a8;display:block;margin-bottom:0.35rem;text-transform:uppercase;letter-spacing:0.5px;">Username</label>
       <input id="ql-admin-user" type="text" placeholder="admin" autocomplete="username"
@@ -986,7 +1527,6 @@ loadDashboard();
         onkeydown="if(event.key==='Enter')document.getElementById('ql-admin-pass').focus()">
     </div>
 
-    <!-- Password -->
     <div style="margin-bottom:1.25rem;">
       <label style="font-size:0.72rem;font-weight:600;color:#8b90a8;display:block;margin-bottom:0.35rem;text-transform:uppercase;letter-spacing:0.5px;">Password</label>
       <div style="position:relative;">
@@ -1005,7 +1545,6 @@ loadDashboard();
       </div>
     </div>
 
-    <!-- Submit -->
     <button id="ql-admin-submit" onclick="submitAdminLogin()" style="
       width:100%;padding:0.7rem;
       background:linear-gradient(135deg,#7c3aed,#9d5ff3);
@@ -1047,36 +1586,30 @@ function _showAdminAlert(msg, ok) {
 }
 async function submitAdminLogin() {
   var btn = document.getElementById('ql-admin-submit');
-  var username = document.getElementById('ql-admin-user').value.trim();
-  var password = document.getElementById('ql-admin-pass').value;
-  if (!username || !password) { _showAdminAlert('Please enter username and password.', false); return; }
-  btn.disabled = true;
-  btn.innerHTML = '<div style="width:15px;height:15px;border:2px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;animation:qlAdminSpin 0.7s linear infinite"></div> Signing in…';
+  var user = document.getElementById('ql-admin-user').value.trim();
+  var pass = document.getElementById('ql-admin-pass').value;
+  if (!user || !pass) { _showAdminAlert('Please enter username and password.', false); return; }
+  btn.disabled = true; btn.textContent = 'Signing in…';
   try {
-    var r = await fetch('/api/admin/login', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      credentials: 'include',
-      body: JSON.stringify({username: username, password: password})
+    var r = await fetch('/api/auth/admin-login', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: user, password: pass })
     });
-    if (r.ok) {
-      _showAdminAlert('✅ Access granted! Redirecting…', true);
-      setTimeout(function(){ window.location.href = '/admin'; }, 600);
+    var d = await r.json();
+    if (r.ok && d.success) {
+      _showAdminAlert('Access granted. Redirecting…', true);
+      setTimeout(function(){ window.location.href = d.redirect || '/admin'; }, 800);
     } else {
-      var d = await r.json().catch(function(){ return {}; });
-      _showAdminAlert('❌ ' + (d.detail || d.error || 'Invalid credentials.'), false);
-      btn.disabled = false;
-      btn.innerHTML = 'Sign In to Admin';
-      document.getElementById('ql-admin-pass').value = '';
+      _showAdminAlert(d.detail || d.message || 'Invalid credentials.', false);
+      btn.disabled = false; btn.textContent = 'Sign In to Admin';
     }
   } catch(e) {
-    _showAdminAlert('❌ Network error. Try again.', false);
-    btn.disabled = false;
-    btn.innerHTML = 'Sign In to Admin';
+    _showAdminAlert('Server error. Try again.', false);
+    btn.disabled = false; btn.textContent = 'Sign In to Admin';
   }
 }
 </script>
-<style>@keyframes qlAdminSpin { to { transform: rotate(360deg); } }</style>
 
 </body>
 </html>

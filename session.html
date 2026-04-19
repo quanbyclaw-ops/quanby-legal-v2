@@ -787,124 +787,459 @@ function addDocumentToList(doc) {
   if (tabBtn) tabBtn.textContent = `📄 Docs (${count})`;
 }
 
-/* ── Add Signer Modal ─────────────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════════════
+   ADD SIGNER WIZARD  (_SW)
+   Step 1 – Select Signers:   checkbox list, ENP optional, ≥1 non-ENP required
+   Step 2 – Assign Roles:     non-ENP only, Principal | Witness per row
+   Step 3 – Set Signing Order: everyone listed, ENP locked-last, ▲▼ if currentUser=ENP
+   openAddSignerModal() / closeSignerModal() kept as public entry-points
+   ══════════════════════════════════════════════════════════════════════ */
 let _signerTargetUuid = null;
 let _signerTargetItem = null;
 
+// ── Saved state restored on Cancel ──────────────────────────────────
+let _swOriginalSelection = [];   // snapshot on open for cancel-restore
+
+const _SW = (() => {
+  // ── internal state ───────────────────────────────────────────────
+  let step     = 1;
+  // { identity, name, email, isEnp, role:'Principal'|'Witness' }
+  let selected = [];
+  // ordered list built in step 3 — non-ENP (reorderable) + ENP at end
+  let ordered  = [];
+
+  // ── DOM shortcuts ────────────────────────────────────────────────
+  const $ = id => document.getElementById(id);
+  const showErr = msg => {
+    const el = $('signer-modal-err');
+    if (msg) { el.textContent = msg; el.style.display = ''; }
+    else      { el.style.display = 'none'; }
+  };
+
+  // ── progress bar ─────────────────────────────────────────────────
+  const STEP_META = {
+    1: { title: 'Select Signers',    sub: 'Step 1 of 3 — Choose who must sign this document' },
+    2: { title: 'Assign Roles',      sub: 'Step 2 of 3 — Set role for each signer (ENP signs as Notary)' },
+    3: { title: 'Set Signing Order', sub: 'Step 3 of 3 — Reorder signers; ENP always signs last' },
+  };
+
+  function updateProgress(n) {
+    [1,2,3].forEach(i => {
+      const dot = $(`sw-dot${i}`);
+      const lbl = $(`sw-lbl${i}`);
+      const active = i <= n;
+      dot.style.background = active ? '#6366f1' : 'rgba(255,255,255,.15)';
+      dot.style.color      = active ? '#fff'    : 'rgba(255,255,255,.4)';
+      lbl.style.color      = active ? '#818cf8' : 'rgba(255,255,255,.35)';
+      if (i < 3) $(`sw-line${i}`).style.background = i < n ? '#6366f1' : 'rgba(255,255,255,.12)';
+    });
+    $('sw-modal-title').textContent = STEP_META[n].title;
+    $('sw-modal-sub').textContent   = STEP_META[n].sub;
+  }
+
+  // ── navigate ─────────────────────────────────────────────────────
+  function goTo(n) {
+    step = n;
+    [1,2,3].forEach(i => $(`sw-step${i}`).style.display = i === n ? '' : 'none');
+    updateProgress(n);
+    showErr(null);
+    $('sw-btn-back').style.display = n > 1  ? '' : 'none';
+    $('sw-btn-next').style.display = n < 3  ? '' : 'none';
+    $('sw-btn-save').style.display = n === 3 ? '' : 'none';
+    if (n === 2) renderStep2();
+    if (n === 3) renderStep3();
+  }
+
+  // ── STEP 1: build checkbox list ──────────────────────────────────
+  function buildParticipantList() {
+    const list = $('sw-participant-list');
+    list.innerHTML = '';
+
+    // Gather all participants: ENP + accepted participants
+    const rows = [];
+    if (_sessionInfo) {
+      if (_sessionInfo.enp_id && _sessionInfo.enp_email) {
+        rows.push({ identity: _sessionInfo.enp_id, name: _sessionInfo.enp_name || 'ENP',
+                    email: _sessionInfo.enp_email, isEnp: true });
+      }
+    }
+    const acceptedEmails = new Set(
+      ((_sessionInfo && _sessionInfo.accepted_participant_emails) || []).map(e => e.toLowerCase().trim())
+    );
+    // Live participants
+    Object.entries(_participants || {}).forEach(([identity, info]) => {
+      if (info.role === 'ENP') return; // already added above
+      const dm   = (window._signerDataMap && window._signerDataMap[identity]) || {};
+      const email = dm.email || '';
+      if (acceptedEmails.size && email && !acceptedEmails.has(email.toLowerCase())) return;
+      rows.push({ identity, name: info.name || 'Participant', email, isEnp: false });
+    });
+    // Accepted from sessionInfo not yet live
+    if (_sessionInfo) {
+      const inMap = new Set(rows.map(r => r.identity));
+      if (_sessionInfo.client_id && !inMap.has(_sessionInfo.client_id) && _sessionInfo.client_email) {
+        rows.push({ identity: _sessionInfo.client_id,
+                    name: _sessionInfo.client_name || 'Client',
+                    email: _sessionInfo.client_email, isEnp: false });
+      }
+      (_sessionInfo.session_participants || []).forEach(p => {
+        if (!p.identity || inMap.has(p.identity)) return;
+        rows.push({ identity: p.identity, name: p.name || 'Guest',
+                    email: p.email || '', isEnp: false });
+      });
+    }
+
+    if (!rows.length) {
+      list.innerHTML = '<div style="padding:1rem;font-size:.8rem;color:var(--muted);text-align:center;">No participants found.</div>';
+      return;
+    }
+
+    rows.forEach(r => {
+      const alreadyAdded = _getExistingSignerEmails().has((r.email || '').toLowerCase());
+      const isSel = !!selected.find(s => s.identity === r.identity);
+      const row = document.createElement('label');
+      row.style.cssText = `display:flex;align-items:center;gap:.75rem;padding:.65rem 1rem;
+        border-bottom:1px solid rgba(255,255,255,.06);cursor:${alreadyAdded ? 'not-allowed' : 'pointer'};
+        opacity:${alreadyAdded ? '.45' : '1'};transition:background .15s;`;
+      row.onmouseenter = () => { if (!alreadyAdded) row.style.background='rgba(255,255,255,.04)'; };
+      row.onmouseleave = () => { row.style.background=''; };
+      row.innerHTML = `
+        <input type="checkbox" data-identity="${esc(r.identity)}" data-name="${esc(r.name)}"
+               data-email="${esc(r.email)}" data-is-enp="${r.isEnp ? '1' : '0'}"
+               class="sw-check" ${alreadyAdded ? 'disabled' : ''} ${isSel ? 'checked' : ''}
+               style="width:15px;height:15px;accent-color:#6366f1;flex-shrink:0;">
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:.85rem;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+            ${esc(r.name)}
+            ${r.isEnp ? '<span style="font-size:.65rem;background:#6366f1;color:#fff;border-radius:4px;padding:.1rem .35rem;margin-left:.3rem;vertical-align:middle;">ENP</span>' : ''}
+          </div>
+          <div style="font-size:.72rem;color:var(--muted);">${esc(r.email || '—')}</div>
+        </div>
+        ${alreadyAdded ? '<span style="font-size:.65rem;color:var(--muted);background:rgba(255,255,255,.08);border-radius:4px;padding:.1rem .35rem;">Already added</span>' : ''}`;
+      list.appendChild(row);
+    });
+
+    // Wire checkboxes
+    list.querySelectorAll('.sw-check').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const identity = cb.dataset.identity;
+        const name     = cb.dataset.name;
+        const email    = cb.dataset.email;
+        const isEnp    = cb.dataset.isEnp === '1';
+        if (cb.checked) {
+          if (!selected.find(s => s.identity === identity))
+            selected.push({ identity, name, email, isEnp, role: 'Principal' });
+        } else {
+          selected = selected.filter(s => s.identity !== identity);
+          ordered  = []; // reset order if selection changes
+        }
+        renderChips();
+        showErr(null);
+      });
+    });
+  }
+
+  function renderChips() {
+    const c = $('sw-chips');
+    c.innerHTML = selected.map(s => `
+      <span style="display:inline-flex;align-items:center;gap:.3rem;background:rgba(99,102,241,.15);
+            border:1px solid rgba(99,102,241,.3);border-radius:6px;padding:.2rem .55rem;font-size:.75rem;color:var(--text);">
+        ${esc(s.name)}
+        ${s.isEnp ? '<span style="font-size:.6rem;background:#6366f1;color:#fff;border-radius:3px;padding:0 .25rem;">ENP</span>' : ''}
+      </span>`).join('');
+  }
+
+  // ── STEP 2: role assignment ──────────────────────────────────────
+  function renderStep2() {
+    const nonEnp = selected.filter(s => !s.isEnp);
+    const list   = $('sw-role-list');
+    if (!nonEnp.length) {
+      list.innerHTML = '<p style="font-size:.8rem;color:var(--muted);">No non-ENP signers to assign roles to.</p>';
+      return;
+    }
+    list.innerHTML = nonEnp.map(s => `
+      <div style="display:flex;align-items:center;gap:.75rem;border:1px solid rgba(255,255,255,.09);
+                  border-radius:10px;padding:.75rem 1rem;margin-bottom:.6rem;">
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:.85rem;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(s.name)}</div>
+          <div style="font-size:.72rem;color:var(--muted);">${esc(s.email)}</div>
+        </div>
+        <select data-identity="${esc(s.identity)}" class="sw-role-sel"
+                style="background:#12121f;border:1px solid rgba(255,255,255,.15);border-radius:8px;
+                       padding:.45rem .75rem;color:var(--text);font-size:.82rem;outline:none;cursor:pointer;">
+          <option value="Principal" ${s.role === 'Principal' ? 'selected' : ''}>Principal</option>
+          <option value="Witness"   ${s.role === 'Witness'   ? 'selected' : ''}>Witness</option>
+        </select>
+      </div>`).join('');
+
+    list.querySelectorAll('.sw-role-sel').forEach(sel => {
+      sel.addEventListener('change', () => {
+        const entry = selected.find(s => s.identity === sel.dataset.identity);
+        if (entry) entry.role = sel.value;
+      });
+    });
+  }
+
+  // ── STEP 3: signing order ────────────────────────────────────────
+  function buildOrdered() {
+    if (!ordered.length) {
+      // First time: non-ENP in selection order, then ENP appended
+      ordered = [
+        ...selected.filter(s => !s.isEnp),
+        ...selected.filter(s => s.isEnp),
+      ];
+    } else {
+      // Preserve prior reordering — just ensure ENP stays at end
+      const nonEnp = ordered.filter(s => !s.isEnp);
+      const enp    = selected.filter(s => s.isEnp);
+      ordered = [...nonEnp, ...enp];
+    }
+  }
+
+  function renderStep3() {
+    buildOrdered();
+    const list      = $('sw-order-list');
+    const hint      = $('sw-order-hint');
+    const canReorder = window._isEnp;
+    hint.textContent = canReorder
+      ? 'Use ▲ ▼ to reorder. The ENP always signs last.'
+      : 'The signing order is listed below. The ENP always signs last.';
+
+    list.innerHTML = '';
+    const nonEnpTotal = ordered.filter(s => !s.isEnp).length;
+
+    ordered.forEach((s, idx) => {
+      const isEnp    = s.isEnp;
+      const dispNum  = isEnp ? '—' : String(idx + 1);
+      const roleLbl  = isEnp ? 'Notary'
+                     : s.role === 'Witness' ? 'Witness' : 'Principal';
+      const roleClr  = isEnp ? '#818cf8'
+                     : s.role === 'Witness' ? '#38bdf8' : '#94a3b8';
+      const arrows   = (!isEnp && canReorder) ? `
+        <div style="display:flex;flex-direction:column;gap:1px;">
+          <button onclick="_SW._move(${idx},-1)" ${idx === 0 ? 'disabled' : ''}
+                  style="background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);
+                         border-radius:5px 5px 0 0;color:var(--text);font-size:.65rem;width:24px;height:18px;
+                         cursor:pointer;line-height:1;${idx===0?'opacity:.3;cursor:default;':''}">▲</button>
+          <button onclick="_SW._move(${idx},1)" ${idx >= nonEnpTotal - 1 ? 'disabled' : ''}
+                  style="background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);
+                         border-radius:0 0 5px 5px;color:var(--text);font-size:.65rem;width:24px;height:18px;
+                         cursor:pointer;line-height:1;${idx>=nonEnpTotal-1?'opacity:.3;cursor:default;':''}">▼</button>
+        </div>` : '';
+      const lockIcon = isEnp
+        ? '<span style="font-size:.75rem;color:var(--muted);" title="ENP always signs last">🔒</span>' : '';
+
+      const row = document.createElement('div');
+      row.style.cssText = `display:flex;align-items:center;gap:.75rem;
+        border:1px solid rgba(255,255,255,.09);border-radius:10px;padding:.7rem 1rem;margin-bottom:.55rem;`;
+      row.innerHTML = `
+        <div style="width:26px;height:26px;border-radius:50%;background:${isEnp ? 'rgba(99,102,241,.25)' : 'rgba(255,255,255,.1)'};
+             display:flex;align-items:center;justify-content:center;font-size:.75rem;font-weight:700;
+             color:${isEnp ? '#818cf8' : 'var(--text)'};flex-shrink:0;">${dispNum}</div>
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:.85rem;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(s.name)}</div>
+          <div style="font-size:.72rem;color:var(--muted);">${esc(s.email)}</div>
+        </div>
+        <span style="font-size:.72rem;font-weight:600;color:${roleClr};background:rgba(255,255,255,.06);
+              border-radius:5px;padding:.15rem .5rem;">${roleLbl}</span>
+        ${lockIcon}
+        ${arrows}`;
+      list.appendChild(row);
+    });
+  }
+
+  // move non-ENP signers up/down
+  function _move(idx, dir) {
+    const nonEnpCount = ordered.filter(s => !s.isEnp).length;
+    const target = idx + dir;
+    if (target < 0 || target >= nonEnpCount) return;
+    [ordered[idx], ordered[target]] = [ordered[target], ordered[idx]];
+    renderStep3();
+  }
+
+  // ── helpers ──────────────────────────────────────────────────────
+  function _getExistingSignerEmails() {
+    const container = document.getElementById('signers-' + _signerTargetUuid);
+    const chips = container ? container.querySelectorAll('[data-email]') : [];
+    const set = new Set();
+    chips.forEach(c => { if (c.dataset.email) set.add(c.dataset.email.toLowerCase()); });
+    return set;
+  }
+
+  function esc(s) {
+    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // ── Navigation ───────────────────────────────────────────────────
+  function next() {
+    showErr(null);
+    if (step === 1) {
+      if (!selected.length) { showErr('Please select at least one participant.'); return; }
+      const nonEnp = selected.filter(s => !s.isEnp);
+      if (!nonEnp.length) { showErr('Select at least one Principal or Witness (not just the ENP).'); return; }
+      // Sync roles from step-2 selects if we've been there before
+      document.querySelectorAll('.sw-role-sel').forEach(sel => {
+        const entry = selected.find(s => s.identity === sel.dataset.identity);
+        if (entry) entry.role = sel.value;
+      });
+      goTo(2);
+    } else if (step === 2) {
+      // Final sync
+      document.querySelectorAll('.sw-role-sel').forEach(sel => {
+        const entry = selected.find(s => s.identity === sel.dataset.identity);
+        if (entry) entry.role = sel.value;
+      });
+      goTo(3);
+    }
+  }
+
+  function back() {
+    if (step > 1) goTo(step - 1);
+  }
+
+  // ── Save: POST each signer sequentially ─────────────────────────
+  async function save() {
+    showErr(null);
+    buildOrdered();
+    const btn = $('sw-btn-save');
+    btn.disabled = true;
+    btn.textContent = '⏳ Saving…';
+
+    let baseOrder = (() => {
+      const container = document.getElementById('signers-' + _signerTargetUuid);
+      const chips = container ? container.querySelectorAll('[data-signing-order]') : [];
+      let max = 0;
+      chips.forEach(c => { const o = parseInt(c.dataset.signingOrder||0); if(o>max) max=o; });
+      return max + 1;
+    })();
+
+    let savedCount = 0;
+    let lastProjectUuid = _signerTargetUuid;
+    const nonEnpOrdered = ordered.filter(s => !s.isEnp);
+    const enpList       = ordered.filter(s => s.isEnp);
+    const toPost        = [...nonEnpOrdered, ...enpList];
+
+    for (let i = 0; i < toPost.length; i++) {
+      const s     = toPost[i];
+      const isEnp = s.isEnp;
+      const order = isEnp ? baseOrder + nonEnpOrdered.length : baseOrder + i;
+      const nameParts = (s.name || '').trim().split(' ');
+      const first = nameParts[0] || s.name;
+      const last  = nameParts.slice(1).join(' ') || '.';
+      // ENP role stored as 'Signer' (principal) internally per spec
+      const signerRole = isEnp ? 'Signer' : (s.role === 'Witness' ? 'Approver' : 'Signer');
+
+      try {
+        const r = await fetch(`/api/sessions/${APT_ID}/documents/${lastProjectUuid}/signers`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: s.email,
+            first_name: first,
+            last_name: last,
+            signer_role: signerRole,
+            signing_order: order,
+          }),
+        });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.detail || `Failed to add ${s.name}`);
+
+        // Handle DC project UUID swap (same logic as before)
+        const newUuid = data.project_uuid;
+        if (newUuid && newUuid !== lastProjectUuid) {
+          _swapProjectUuid(lastProjectUuid, newUuid);
+          lastProjectUuid = newUuid;
+          _signerTargetUuid = newUuid;
+        }
+
+        renderSignerChip(lastProjectUuid, {
+          email: s.email, first_name: first, last_name: last,
+          signer_role: signerRole, signing_order: order, _is_enp: isEnp,
+        });
+        savedCount++;
+      } catch(e) {
+        showErr(`Error adding ${s.name}: ${e.message}`);
+        btn.disabled = false;
+        btn.textContent = 'Save';
+        return;
+      }
+    }
+
+    // Hide add-signer button for this doc
+    const addBtn = document.getElementById('add-signer-btn-' + lastProjectUuid);
+    if (addBtn) addBtn.style.display = 'none';
+
+    closeSignerModal();
+    showToast(`✓ ${savedCount} ${savedCount === 1 ? 'signatory' : 'signatories'} saved successfully.`, 'success');
+    setTimeout(_syncSessionState, 1500);
+  }
+
+  // ── UUID swap helper (mirrors original logic) ────────────────────
+  function _swapProjectUuid(oldUuid, newUuid) {
+    if (_sessionInfo && Array.isArray(_sessionInfo.session_documents)) {
+      _sessionInfo.session_documents.forEach(d => {
+        if ((d.project_uuid||d.doconchain_project_uuid) === oldUuid) {
+          d.project_uuid = newUuid; d.doconchain_project_uuid = newUuid;
+        }
+      });
+    }
+    [
+      ['signers-',         null,           null],
+      ['add-signer-btn-',  'onclick',      `openAddSignerModal('${newUuid}', this.closest('.doc-list-item'))`],
+      ['plot-sign-btn-',   'onclick',      `openPlotSignature('${newUuid}')`],
+      ['sign-doc-btn-',    'onclick',      `openSignDocument('${newUuid}', '${APT_ID||''}')`],
+      ['refresh-status-btn-','onclick',    `refreshSignerStatus('${newUuid}', '${APT_ID||''}')`],
+    ].forEach(([prefix, attr, val]) => {
+      const el = document.getElementById(prefix + oldUuid);
+      if (el) { el.id = prefix + newUuid; if (attr) el.setAttribute(attr, val); }
+    });
+  }
+
+  // ── Reset ────────────────────────────────────────────────────────
+  function reset() {
+    selected = [];
+    ordered  = [];
+    $('sw-chips').innerHTML     = '';
+    $('sw-role-list').innerHTML = '';
+    $('sw-order-list').innerHTML= '';
+    showErr(null);
+    goTo(1);
+  }
+
+  // ── Public API ───────────────────────────────────────────────────
+  return { next, back, save, reset, _move, _buildList: buildParticipantList };
+})();
+
+// ── Public entry points (called from doc-item buttons) ──────────────
 function openAddSignerModal(projectUuid, itemEl) {
   if (!window._isEnp) return;
-  // Guard: don't allow roster changes if signing started
-  const _docState = (_sessionInfo && Array.isArray(_sessionInfo.session_documents) ? _sessionInfo.session_documents : []).find(function(d){ return (d.project_uuid||d.doconchain_project_uuid) === projectUuid; });
-  if (_docState && _docState.dc_workflow_state && ['plotting','signing','completed'].includes(_docState.dc_workflow_state)) {
+  const _docState = ((_sessionInfo && Array.isArray(_sessionInfo.session_documents))
+    ? _sessionInfo.session_documents : [])
+    .find(d => (d.project_uuid||d.doconchain_project_uuid) === projectUuid);
+  if (_docState && _docState.dc_workflow_state &&
+      ['plotting','signing','completed'].includes(_docState.dc_workflow_state)) {
     showToast('Roster is locked — signing has started on this document.', 'error');
     return;
   }
   _signerTargetUuid = projectUuid;
   _signerTargetItem = itemEl;
 
-  // Build accepted-participant email set from sessionInfo
+  // Build _signerDataMap (email lookup for participants)
   window._signerDataMap = {};
-  const _acceptedEmails = new Set(
-    ((_sessionInfo && _sessionInfo.accepted_participant_emails) || []).map(e => e.toLowerCase().trim())
-  );
   if (_sessionInfo) {
-    if (_sessionInfo.client_id && _sessionInfo.client_email)
-      window._signerDataMap[_sessionInfo.client_id] = { email: _sessionInfo.client_email, name: _sessionInfo.client_name || 'Client', role: 'Client' };
     if (_sessionInfo.enp_id && _sessionInfo.enp_email)
-      window._signerDataMap[_sessionInfo.enp_id] = { email: _sessionInfo.enp_email, name: _sessionInfo.enp_name || 'ENP', role: 'ENP' };
-    (_sessionInfo.session_participants || []).forEach(p => {
-      if (p.identity && p.email) window._signerDataMap[p.identity] = { email: p.email, name: p.name || 'Guest', role: p.role || 'Witness' };
+      window._signerDataMap[_sessionInfo.enp_id] = { email: _sessionInfo.enp_email, name: _sessionInfo.enp_name||'ENP' };
+    if (_sessionInfo.client_id && _sessionInfo.client_email)
+      window._signerDataMap[_sessionInfo.client_id] = { email: _sessionInfo.client_email, name: _sessionInfo.client_name||'Client' };
+    (_sessionInfo.session_participants||[]).forEach(p => {
+      if (p.identity && p.email) window._signerDataMap[p.identity] = { email: p.email, name: p.name||'Guest' };
     });
   }
 
-  // Populate dropdown: accepted participants only, excluding ENP
-  const sel = document.getElementById('signer-participant-sel');
-  sel.innerHTML = '<option value="">\u2014 Select participant \u2014</option>';
-  Object.entries(_participants).forEach(([identity, info]) => {
-    if (info.role === 'ENP') return;
-    const emailEntry = window._signerDataMap[identity] || {};
-    const email = emailEntry.email || '';
-    if (_acceptedEmails.size > 0 && email && !_acceptedEmails.has(email.toLowerCase().trim())) return;
-    window._signerDataMap[identity] = { name: info.name, role: info.role, email };
-    const opt = document.createElement('option');
-    opt.value = identity;
-    opt.textContent = info.name + (email ? ' \u2014 ' + email : '') + ' (' + info.role + ')';
-    sel.appendChild(opt);
-  });
-  // Add accepted participants from sessionInfo not yet live in the room
-  if (_sessionInfo) {
-    const _inMap = new Set(Array.from(sel.options).map(o => o.value));
-    if (_sessionInfo.client_id && !_inMap.has(_sessionInfo.client_id) && _sessionInfo.client_email) {
-      const opt = document.createElement('option');
-      opt.value = _sessionInfo.client_id;
-      opt.textContent = (_sessionInfo.client_name || 'Client') + ' \u2014 ' + _sessionInfo.client_email + ' (Client)';
-      sel.appendChild(opt);
-    }
-    (_sessionInfo.session_participants || []).forEach(p => {
-      if (!p.identity || _inMap.has(p.identity)) return;
-      const opt = document.createElement('option');
-      opt.value = p.identity;
-      opt.textContent = (p.name || 'Guest') + (p.email ? ' \u2014 ' + p.email : '') + ' (' + (p.role || 'Witness') + ')';
-      sel.appendChild(opt);
-    });
-  }
-  // Reset fields
-  document.getElementById('signer-email').value     = '';
-  document.getElementById('signer-first').value     = '';
-  document.getElementById('signer-last').value      = '';
-  document.getElementById('signer-role').value      = 'Signer';
-  // Auto-increment order: count existing signer chips + 1
-  var _existingChips = (document.getElementById('signers-' + projectUuid) || {querySelectorAll: function(){return [];}}).querySelectorAll('[data-signing-order]');
-  var _maxOrder = 0;
-  _existingChips.forEach(function(c){ var o = parseInt(c.dataset.signingOrder||0); if(o>_maxOrder) _maxOrder=o; });
-  document.getElementById('signer-order').value     = String(_maxOrder + 1);
-  // Always show fields initially — onSignerParticipantSelect will hide email if known
-  document.getElementById('signer-manual-fields').style.display = '';
-  const emailRowInit = document.getElementById('signer-email-row');
-  if (emailRowInit) emailRowInit.style.display = '';
-  document.getElementById('signer-modal-err').textContent = '';
+  _SW.reset();
+  _SW._buildList();
   document.getElementById('signer-modal').style.display = 'flex';
-
-  // If only one remote participant, auto-select them
-  const opts = sel.querySelectorAll('option[value]:not([value=""])');
-  if (opts.length === 1) {
-    sel.value = opts[0].value;
-    onSignerParticipantSelect();
-  }
-}
-
-function onSignerParticipantSelect() {
-  const sel = document.getElementById('signer-participant-sel');
-  const identity = sel.value; // plain identity string — no JSON parsing needed
-  const manualFields = document.getElementById('signer-manual-fields');
-  const emailRow = document.getElementById('signer-email-row');
-
-  if (!identity) {
-    manualFields.style.display = 'none';
-    if (emailRow) emailRow.style.display = '';
-    document.getElementById('signer-email').value = '';
-    document.getElementById('signer-first').value = '';
-    document.getElementById('signer-last').value  = '';
-    return;
-  }
-
-  // Look up participant data from the Map — no JSON parsing
-  const data = (window._signerDataMap && window._signerDataMap[identity]) || {};
-  const name  = data.name || _participants[identity]?.name || '';
-  const email = data.email || '';
-
-  const nameParts = name.split(' ');
-  document.getElementById('signer-first').value = nameParts[0] || '';
-  document.getElementById('signer-last').value  = nameParts.slice(1).join(' ') || '';
-  manualFields.style.display = '';
-
-  if (email) {
-    document.getElementById('signer-email').value = email;
-    if (emailRow) emailRow.style.display = 'none'; // email known — hide field
-  } else {
-    document.getElementById('signer-email').value = '';
-    if (emailRow) emailRow.style.display = ''; // no email — show for manual entry
-  }
 }
 
 function closeSignerModal() {
@@ -913,93 +1248,11 @@ function closeSignerModal() {
   _signerTargetItem = null;
 }
 
-async function submitAddSigner() {
-  const btn   = document.getElementById('signer-submit-btn');
-  const err   = document.getElementById('signer-modal-err');
-  const email = document.getElementById('signer-email').value.trim();
-  const first = document.getElementById('signer-first').value.trim();
-  const last  = document.getElementById('signer-last').value.trim();
-  const role  = document.getElementById('signer-role').value;
-  const order = parseInt(document.getElementById('signer-order').value) || 1;
+// ── Legacy stub — no longer used but kept so old references don't break
+function onSignerParticipantSelect() {}
 
-  if (!email) { err.textContent = 'Email is required.'; return; }
-  err.textContent = '';
-  btn.disabled = true;
-  btn.textContent = '⏳ Adding…';
-
-  try {
-    const r = await fetch(`/api/sessions/${APT_ID}/documents/${_signerTargetUuid}/signers`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, first_name: first, last_name: last, signer_role: role, signing_order: order }),
-    });
-    const data = await r.json();
-    if (!r.ok) throw new Error(data.detail || 'Failed to add signer');
-
-    // If DC project was recreated, swap the UUID everywhere
-    const newUuid = data.project_uuid;
-    const oldUuid = _signerTargetUuid;
-    if (newUuid && newUuid !== oldUuid) {
-      // Swap UUID in _docs array so plot/sign buttons target the right project
-      if (_sessionInfo && Array.isArray(_sessionInfo.session_documents)) {
-        _sessionInfo.session_documents.forEach(function(d) {
-          if ((d.project_uuid || d.doconchain_project_uuid) === oldUuid) {
-            d.project_uuid = newUuid;
-            d.doconchain_project_uuid = newUuid;
-          }
-        });
-      }
-      // Swap signer chip container IDs
-      var oldContainer = document.getElementById('signers-' + oldUuid);
-      if (oldContainer) oldContainer.id = 'signers-' + newUuid;
-      var oldAddBtn = document.getElementById('add-signer-btn-' + oldUuid);
-      if (oldAddBtn) { oldAddBtn.id = 'add-signer-btn-' + newUuid; oldAddBtn.setAttribute('onclick', "openAddSignerModal('" + newUuid + "', this.closest('.doc-list-item'))"); }
-      var oldPlotBtn = document.getElementById('plot-sign-btn-' + oldUuid);
-      if (oldPlotBtn) { oldPlotBtn.id = 'plot-sign-btn-' + newUuid; oldPlotBtn.setAttribute('onclick', "openPlotSignature('" + newUuid + "')"); }
-      var oldSignBtn = document.getElementById('sign-doc-btn-' + oldUuid);
-      if (oldSignBtn) { oldSignBtn.id = 'sign-doc-btn-' + newUuid; oldSignBtn.setAttribute('onclick', "openSignDocument('" + newUuid + "', '" + (APT_ID||'') + "')"); }
-      var oldRefreshBtn = document.getElementById('refresh-status-btn-' + oldUuid);
-      if (oldRefreshBtn) { oldRefreshBtn.id = 'refresh-status-btn-' + newUuid; oldRefreshBtn.setAttribute('onclick', "refreshSignerStatus('" + newUuid + "', '" + (APT_ID||'') + "')"); }
-      _signerTargetUuid = newUuid;
-    }
-
-    // Render the added signer chip
-    renderSignerChip(_signerTargetUuid, { email, first_name: first, last_name: last, signer_role: role, signing_order: order });
-
-    // Auto-add ENP as the LAST signer chip (highest order + 1) if not already present
-    if (_sessionInfo && _sessionInfo.enp_email) {
-      var _enpChipAlready = document.querySelector(
-        '#signers-' + _signerTargetUuid + ' [data-email="' + (_sessionInfo.enp_email || '').toLowerCase() + '"]'
-      );
-      if (!_enpChipAlready) {
-        var _existingChipsAdd = Array.from(
-          (document.getElementById('signers-' + _signerTargetUuid) || {querySelectorAll: function(){return [];}}).querySelectorAll('[data-signing-order]')
-        );
-        var _maxOrdAdd = _existingChipsAdd.reduce(function(m,c){return Math.max(m,parseInt(c.dataset.signingOrder)||0);},0);
-        var _enpNAdd = (_sessionInfo.enp_name||'ENP').split(' ');
-        renderSignerChip(_signerTargetUuid, {
-          email: _sessionInfo.enp_email,
-          first_name: _enpNAdd[0]||'ENP',
-          last_name: _enpNAdd.slice(1).join(' ')||'.',
-          signer_role: 'Signer',
-          signing_order: _maxOrdAdd + 1,
-          _is_enp: true,
-        });
-      }
-    }
-
-    const _ab2 = document.getElementById('add-signer-btn-' + _signerTargetUuid);
-    if (_ab2) _ab2.style.display = 'none';
-    closeSignerModal();
-    setTimeout(_syncSessionState, 1500);
-  } catch(e) {
-    err.textContent = e.message;
-  } finally {
-    btn.disabled = false;
-    btn.textContent = 'Add Signer';
-  }
-}
+// submitAddSigner — replaced by _SW.save() in the 3-step wizard
+function submitAddSigner() { _SW.save(); }
 
 function renderSignerChip(projectUuid, signer) {
   const container = document.getElementById(`signers-${projectUuid}`);
@@ -2461,67 +2714,113 @@ if (!APT_ID) {
 </script>
 
 <!-- ── Add Signer Modal ──────────────────────────────────────────────────── -->
-<div id="signer-modal" style="display:none;position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,.7);align-items:center;justify-content:center;backdrop-filter:blur(4px);">
-  <div style="background:#1a1a2e;border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:1.75rem;width:100%;max-width:420px;box-shadow:0 20px 60px rgba(0,0,0,.5);">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem;">
-      <h3 style="margin:0;font-size:1rem;font-weight:700;color:var(--text);">➕ Add Signer to Document</h3>
-      <button onclick="closeSignerModal()" style="background:none;border:none;color:var(--muted);font-size:1.25rem;cursor:pointer;line-height:1;">✕</button>
-    </div>
+<!-- ══════════════════════════════════════════════════════════════════
+     ADD SIGNER WIZARD  — 3-step modal
+     Step 1: Select Signers   (checkboxes, ENP optional, ≥1 non-ENP required)
+     Step 2: Assign Roles     (non-ENP only, Principal / Witness dropdown)
+     Step 3: Signing Order    (everyone, numbered, ENP locked-last, ▲▼ for ENP user)
+     ══════════════════════════════════════════════════════════════════ -->
+<div id="signer-modal" style="display:none;position:fixed;inset:0;z-index:9000;
+     background:rgba(0,0,0,.75);align-items:center;justify-content:center;
+     backdrop-filter:blur(6px);">
+  <div style="background:#1a1a2e;border:1px solid rgba(255,255,255,.13);border-radius:18px;
+              width:100%;max-width:480px;max-height:90vh;display:flex;flex-direction:column;
+              box-shadow:0 24px 64px rgba(0,0,0,.6);overflow:hidden;">
 
-    <p style="font-size:.78rem;color:var(--muted);margin:0 0 1rem;">Select any session participant as a signer. You can add multiple signers — each gets their own signing order.</p>
-
-    <div style="display:flex;flex-direction:column;gap:.75rem;">
-      <div>
-        <label style="font-size:.75rem;color:var(--muted);display:block;margin-bottom:.3rem;">Select Participant in Meeting</label>
-        <select id="signer-participant-sel" onchange="onSignerParticipantSelect()"
-          style="width:100%;box-sizing:border-box;background:#1a1a2e;border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:.55rem .75rem;color:var(--text);font-size:.85rem;outline:none;">
-          <option value="">— Select participant —</option>
-        </select>
-        <div style="font-size:.7rem;color:var(--muted);margin-top:.25rem;">Only participants currently in this meeting are shown.</div>
-      </div>
-      <div id="signer-manual-fields" style="display:none;display:flex;flex-direction:column;gap:.75rem;">
-      <div id="signer-email-row">
-        <label style="font-size:.75rem;color:var(--muted);display:block;margin-bottom:.3rem;">Email *</label>
-        <input id="signer-email" type="email" placeholder="signer@email.com"
-          style="width:100%;box-sizing:border-box;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:.55rem .75rem;color:var(--text);font-size:.85rem;outline:none;">
-        <div style="font-size:.7rem;color:var(--muted);margin-top:.2rem;">Auto-filled from meeting participant data.</div>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:.6rem;">
+    <!-- Header -->
+    <div style="padding:1.25rem 1.5rem .75rem;border-bottom:1px solid rgba(255,255,255,.08);
+                background:linear-gradient(135deg,rgba(99,102,241,.15),rgba(14,165,233,.1));">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;">
         <div>
-          <label style="font-size:.75rem;color:var(--muted);display:block;margin-bottom:.3rem;">First Name</label>
-          <input id="signer-first" type="text" placeholder="First"
-            style="width:100%;box-sizing:border-box;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:.55rem .75rem;color:var(--text);font-size:.85rem;outline:none;">
+          <div style="font-size:1rem;font-weight:700;color:var(--text)" id="sw-modal-title">Select Signers</div>
+          <div style="font-size:.72rem;color:var(--muted);margin-top:.15rem" id="sw-modal-sub">
+            Step 1 of 3 — Choose who must sign this document
+          </div>
         </div>
-        <div>
-          <label style="font-size:.75rem;color:var(--muted);display:block;margin-bottom:.3rem;">Last Name</label>
-          <input id="signer-last" type="text" placeholder="Last"
-            style="width:100%;box-sizing:border-box;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:.55rem .75rem;color:var(--text);font-size:.85rem;outline:none;">
-        </div>
+        <button onclick="closeSignerModal()"
+                style="background:none;border:none;color:var(--muted);font-size:1.2rem;cursor:pointer;line-height:1;padding:.1rem .3rem;border-radius:6px;"
+                title="Close">✕</button>
       </div>
-      </div><!-- end signer-manual-fields -->
-
-      <div>
-        <label style="font-size:.75rem;color:var(--muted);display:block;margin-bottom:.3rem;">Role for this signer</label>
-        <select id="signer-role" style="width:100%;box-sizing:border-box;background:#1a1a2e;border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:.55rem .75rem;color:var(--text);font-size:.85rem;outline:none;">
-          <option value="Signer">Principal</option>
-          <option value="Approver">Witness</option>
-        </select>
-        <div style="font-size:.7rem;color:var(--muted);margin-top:.3rem;">Principal = main signatory. Witness = approver/co-signer. ENP role is set automatically.</div>
-      </div>
-
-      <div>
-        <label style="font-size:.75rem;color:var(--muted);display:block;margin-bottom:.3rem;">Signing Order</label>
-        <input id="signer-order" type="number" min="1" max="10" value="1"
-          style="width:80px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:.55rem .75rem;color:var(--text);font-size:.85rem;outline:none;">
-        <span style="font-size:.72rem;color:var(--muted);margin-left:.5rem;">1 = signs first</span>
+      <!-- Progress dots -->
+      <div style="display:flex;align-items:center;gap:0;margin-top:.9rem;">
+        <div id="sw-dot1" style="width:22px;height:22px;border-radius:50%;display:flex;align-items:center;
+             justify-content:center;font-size:.68rem;font-weight:700;flex-shrink:0;
+             background:#6366f1;color:#fff;transition:all .2s;">1</div>
+        <div style="font-size:.7rem;color:#6366f1;margin:0 .4rem;white-space:nowrap" id="sw-lbl1">Select Signers</div>
+        <div id="sw-line1" style="flex:1;height:2px;background:#6366f1;transition:background .2s;margin:0 .25rem"></div>
+        <div id="sw-dot2" style="width:22px;height:22px;border-radius:50%;display:flex;align-items:center;
+             justify-content:center;font-size:.68rem;font-weight:700;flex-shrink:0;
+             background:rgba(255,255,255,.15);color:rgba(255,255,255,.4);transition:all .2s;">2</div>
+        <div style="font-size:.7rem;color:rgba(255,255,255,.35);margin:0 .4rem;white-space:nowrap" id="sw-lbl2">Assign Roles</div>
+        <div id="sw-line2" style="flex:1;height:2px;background:rgba(255,255,255,.12);transition:background .2s;margin:0 .25rem"></div>
+        <div id="sw-dot3" style="width:22px;height:22px;border-radius:50%;display:flex;align-items:center;
+             justify-content:center;font-size:.68rem;font-weight:700;flex-shrink:0;
+             background:rgba(255,255,255,.15);color:rgba(255,255,255,.4);transition:all .2s;">3</div>
+        <div style="font-size:.7rem;color:rgba(255,255,255,.35);margin-left:.4rem;white-space:nowrap" id="sw-lbl3">Signing Order</div>
       </div>
     </div>
 
-    <div id="signer-modal-err" style="color:#f87171;font-size:.78rem;margin-top:.75rem;min-height:1rem;"></div>
+    <!-- Error banner -->
+    <div id="signer-modal-err" style="display:none;background:rgba(248,113,113,.12);border-bottom:1px solid rgba(248,113,113,.3);
+         padding:.6rem 1.5rem;font-size:.78rem;color:#f87171;"></div>
 
-    <div style="display:flex;gap:.75rem;margin-top:1.25rem;">
-      <button onclick="closeSignerModal()" style="flex:1;padding:.65rem;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:9px;color:var(--muted);font-size:.85rem;cursor:pointer;font-weight:600;">Cancel</button>
-      <button id="signer-submit-btn" onclick="submitAddSigner()" style="flex:2;padding:.65rem;background:linear-gradient(135deg,#0ea5e9,#6366f1);border:none;border-radius:9px;color:#fff;font-size:.85rem;cursor:pointer;font-weight:700;">Add Signer</button>
+    <!-- Body (scrollable) -->
+    <div style="flex:1;overflow-y:auto;padding:1.25rem 1.5rem;">
+
+      <!-- ═══ STEP 1: SELECT SIGNERS ═══ -->
+      <div id="sw-step1">
+        <p style="font-size:.78rem;color:var(--muted);margin:0 0 .85rem;">
+          Select who must sign. The ENP may be included — but at least one
+          <strong style="color:var(--text)">Principal or Witness</strong> is required.
+        </p>
+        <div id="sw-participant-list" style="border:1px solid rgba(255,255,255,.1);border-radius:10px;
+             max-height:260px;overflow-y:auto;"></div>
+        <!-- selected chips -->
+        <div id="sw-chips" style="display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.75rem;min-height:24px;"></div>
+      </div>
+
+      <!-- ═══ STEP 2: ASSIGN ROLES ═══ -->
+      <div id="sw-step2" style="display:none;">
+        <p style="font-size:.78rem;color:var(--muted);margin:0 0 .85rem;">
+          Assign each signer a role. The <strong style="color:#818cf8">ENP signs as Notary</strong> — they are not listed here.
+        </p>
+        <div id="sw-role-list"></div>
+      </div>
+
+      <!-- ═══ STEP 3: SIGNING ORDER ═══ -->
+      <div id="sw-step3" style="display:none;">
+        <p style="font-size:.78rem;color:var(--muted);margin:0 0 .85rem;" id="sw-order-hint">
+          The ENP always signs last. Use the arrows to reorder the other signers.
+        </p>
+        <div id="sw-order-list"></div>
+      </div>
+
+    </div>
+
+    <!-- Footer -->
+    <div style="padding:.9rem 1.5rem;border-top:1px solid rgba(255,255,255,.08);
+                display:flex;align-items:center;gap:.6rem;background:#12121f;">
+      <button id="sw-btn-cancel" onclick="closeSignerModal()"
+              style="padding:.6rem 1.1rem;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);
+                     border-radius:9px;color:var(--muted);font-size:.83rem;cursor:pointer;font-weight:600;">
+        Cancel
+      </button>
+      <button id="sw-btn-back" onclick="_SW.back()" style="display:none;
+              padding:.6rem 1.1rem;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);
+              border-radius:9px;color:var(--text);font-size:.83rem;cursor:pointer;font-weight:600;">
+        ← Back
+      </button>
+      <div style="flex:1"></div>
+      <button id="sw-btn-next" onclick="_SW.next()"
+              style="padding:.6rem 1.4rem;background:linear-gradient(135deg,#6366f1,#0ea5e9);border:none;
+                     border-radius:9px;color:#fff;font-size:.83rem;cursor:pointer;font-weight:700;">
+        Next →
+      </button>
+      <button id="sw-btn-save" onclick="_SW.save()" style="display:none;
+              padding:.6rem 1.4rem;background:linear-gradient(135deg,#10b981,#0ea5e9);border:none;
+              border-radius:9px;color:#fff;font-size:.83rem;cursor:pointer;font-weight:700;">
+        Save
+      </button>
     </div>
   </div>
 </div>

@@ -18,6 +18,7 @@ SMTP_HOST = "smtp.gmail.com"
 SMTP_PORT = 587
 EMAIL_FROM     = os.getenv("EMAIL_FROM", "noreply@quanby.legal")
 EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD", "")
+EMAIL_USER     = os.getenv("EMAIL_USER", "")  # Gmail account for SMTP auth
 
 
 def send_email(to_email: str, subject: str, html_body: str, text_body: str = "") -> bool:
@@ -45,7 +46,8 @@ def send_email(to_email: str, subject: str, html_body: str, text_body: str = "")
             server.ehlo()
             server.starttls()
             server.ehlo()
-            server.login(EMAIL_FROM, EMAIL_PASSWORD)
+            smtp_user = os.getenv("EMAIL_USER", "") or EMAIL_FROM
+            server.login(smtp_user, EMAIL_PASSWORD)
             server.sendmail(EMAIL_FROM, [to_email], msg.as_string())
 
         logger.info("[email_service] Email sent to %s — subject: %s", to_email, subject)
