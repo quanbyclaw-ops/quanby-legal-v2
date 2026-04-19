@@ -703,6 +703,8 @@ function addDocumentToList(doc) {
   }[doc.type] || doc.type;
 
   const projectUuid = doc.project_uuid || '';
+  // Short UUID shown on card so ENP can confirm which doc they're acting on
+  const shortUuid = projectUuid ? projectUuid.slice(0, 8) : '';
 
   const item = document.createElement('div');
   item.className = 'doc-list-item';
@@ -741,8 +743,8 @@ function addDocumentToList(doc) {
       <div style="flex:1;min-width:0;">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:.5rem;margin-bottom:.2rem;">
           <div style="min-width:0;">
-            <div style="font-weight:700;font-size:.88rem;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px;" title="${escHtml(doc.name)}">${escHtml(doc.name)}</div>
-            <div style="font-size:.72rem;color:var(--muted);margin-top:.1rem;">${escHtml(fmtType)}</div>
+            <div class="doc-title" style="font-weight:700;font-size:.88rem;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px;" title="${escHtml(doc.name)} [${shortUuid}]">${escHtml(doc.name)}</div>
+            <div style="font-size:.72rem;color:var(--muted);margin-top:.1rem;">${escHtml(fmtType)} <span style="color:rgba(255,255,255,.25);font-family:monospace;font-size:.68rem;">#${shortUuid}</span></div>
           </div>
           <div style="text-align:right;flex-shrink:0;min-width:80px;">
             <div id="fee-display-${escHtml(projectUuid)}"
@@ -1239,6 +1241,17 @@ function openAddSignerModal(projectUuid, itemEl) {
 
   _SW.reset();
   _SW._buildList();
+
+  // Show which doc is being targeted in the modal subtitle
+  const _targetDoc = (_sessionInfo && Array.isArray(_sessionInfo.session_documents)
+    ? _sessionInfo.session_documents : [])
+    .find(d => (d.project_uuid || d.doconchain_project_uuid) === projectUuid);
+  const _targetDocName = (_targetDoc && (_targetDoc.doc_name || _targetDoc.name)) || 'document';
+  const _subEl = document.getElementById('sw-modal-sub');
+  if (_subEl) {
+    _subEl.innerHTML = `Step 1 of 3 — Adding signers to: <strong style="color:#c4b5fd">${_targetDocName}</strong> <span style="font-family:monospace;font-size:.68rem;color:rgba(255,255,255,.3)">[${projectUuid.slice(0,8)}]</span>`;
+  }
+
   document.getElementById('signer-modal').style.display = 'flex';
 }
 
@@ -2882,6 +2895,21 @@ if (!APT_ID) {
 async function openPlotSignature(projectUuid) {
   if (!window._isEnp) return;
   if (!window._plottingDone) window._plottingDone = {};
+
+  // Guard: confirm which document is being plotted (prevents wrong-doc errors when multiple docs look identical)
+  const _docForPlot = (_sessionInfo && Array.isArray(_sessionInfo.session_documents)
+    ? _sessionInfo.session_documents : [])
+    .find(d => (d.project_uuid || d.doconchain_project_uuid) === projectUuid);
+  const _docNameForPlot = (_docForPlot && (_docForPlot.doc_name || _docForPlot.name)) || 'this document';
+  const _confirmed = await qlConfirm(
+    'Confirm: Plot Signature Fields',
+    `You are about to place signature fields on:<br><br>
+     <strong style="color:var(--text)">${_docNameForPlot}</strong><br>
+     <span style="font-family:monospace;font-size:.75rem;color:#818cf8">ID: ${projectUuid}</span><br><br>
+     <span style="font-size:.78rem;color:var(--muted)">Make sure this is the correct document before proceeding.</span>`,
+    'Yes, Plot This Document'
+  );
+  if (!_confirmed) return;
 
   // Show loading state on button immediately
   var _plotBtn = document.getElementById('plot-sign-btn-' + projectUuid);
