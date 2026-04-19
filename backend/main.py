@@ -1946,7 +1946,7 @@ def _add_dc_signer(project_uuid: str, email: str, first_name: str, last_name: st
     print(f"[AddSigner] project={project_uuid[:12]} email={email} role={_dc_role} sequence={sequence}", flush=True)
     try:
         _resp = _rq_signer.post(
-            f"{_DC_BASE}/api/v2/projects/{project_uuid}/signers?user_type=ENTERPRISE_API",
+            f"{_DC_BASE}/projects/{project_uuid}/signers?user_type=ENTERPRISE_API",
             json=payload,
             headers={"Authorization": f"Bearer {token}"},
             timeout=30,
@@ -1967,7 +1967,7 @@ def _add_dc_signer(project_uuid: str, email: str, first_name: str, last_name: st
             print(f"[AddSigner] 401 on {project_uuid[:12]} — refreshing token and retrying", flush=True)
             token = _get_dc_token()
             _resp2 = _rq_signer.post(
-                f"{_DC_BASE}/api/v2/projects/{project_uuid}/signers?user_type=ENTERPRISE_API",
+                f"{_DC_BASE}/projects/{project_uuid}/signers?user_type=ENTERPRISE_API",
                 json=payload,
                 headers={"Authorization": f"Bearer {token}"},
                 timeout=30,
@@ -4397,7 +4397,7 @@ async def add_document_signer(
         }).encode()
 
         _sig_req = _ureqSig.Request(
-            f"{_DC_BASE}/api/v2/projects/{project_uuid}/signers?user_type=ENTERPRISE_API",
+            f"{_DC_BASE}/projects/{project_uuid}/signers?user_type=ENTERPRISE_API",
             data=_sig_payload,
             headers={"Content-Type": "application/json", "Authorization": f"Bearer {_dc_token_s}"},
             method="POST",
