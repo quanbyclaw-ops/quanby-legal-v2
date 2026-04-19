@@ -3354,12 +3354,76 @@ async def get_signer_status(
                             if _all_signed_now and _d4.get("status") != "completed":
                                 _d4["status"] = "completed"
                                 _d4["completed_at"] = dc_completed_at or _dt.now(_tz.utc).isoformat()
-                                print(f"[SignerStatus] DC COMPLETED + all signers SIGNED — doc {project_uuid[:12]} marked completed. Registry will populate on session end.", flush=True)
+                                # ── LOG: document fully signed and marked COMPLETED ────────────────────
+                                print(
+                                    f"[Completion] ══════════════════════════════════════════════════════",
+                                    flush=True
+                                )
+                                print(
+                                    f"[Completion] ✅ DOCUMENT COMPLETED  uuid={project_uuid[:12]}",
+                                    flush=True
+                                )
+                                print(
+                                    f"[Completion]    DC status={project_status} completed_at={dc_completed_at}",
+                                    flush=True
+                                )
+                                print(
+                                    f"[Completion]    staging_all_signed_at={_staging_all_have_signed_at}",
+                                    flush=True
+                                )
+                                print(
+                                    f"[Completion]    signers ({len(_all_sr)} total):",
+                                    flush=True
+                                )
+                                for _csr in _all_sr:
+                                    print(
+                                        f"[Completion]      email={_csr.get('email')} "
+                                        f"status={_csr.get('status')} "
+                                        f"signed_at={(_csr.get('signed_at') or '')[:19]}",
+                                        flush=True
+                                    )
+                                print(
+                                    f"[Completion] ══════════════════════════════════════════════════════",
+                                    flush=True
+                                )
                                 # Registry is populated ONLY on session end, not here.
                             elif not _dc_project_completed and all(r.get("status") == "SIGNED" for r in _all_sr) and len(_all_sr) > 0:
-                                print(f"[SignerStatus] All signers signed internally but DC project not yet COMPLETED (status={project_status}) — waiting for DC confirmation.", flush=True)
+                                print(
+                                    f"[Completion] ⏳ All signers SIGNED internally but DC status={project_status} "
+                                    f"completed_at={dc_completed_at} — waiting for DC to flip COMPLETED.",
+                                    flush=True
+                                )
+                                for _wsr in _all_sr:
+                                    print(
+                                        f"[Completion]    email={_wsr.get('email')} "
+                                        f"status={_wsr.get('status')} "
+                                        f"signed_at={(_wsr.get('signed_at') or '')[:19]}",
+                                        flush=True
+                                    )
                             _db.save_apt(_sync_apt)
                             break
+
+        # ── LOG: what we return to the client ────────────────────────────────
+        print(
+            f"[SignerStatus] ── RESPONSE for {project_uuid[:12]} ─────────────────────",
+            flush=True
+        )
+        print(
+            f"[SignerStatus]    project_status={project_status} completed_at={dc_completed_at}",
+            flush=True
+        )
+        for _ret_s in signer_statuses:
+            print(
+                f"[SignerStatus]    signer email={_ret_s.get('email')} "
+                f"signed={_ret_s.get('signed')} dc_status={_ret_s.get('dc_status')} "
+                f"signed_at={(_ret_s.get('signed_at') or '')[:19]} "
+                f"order={_ret_s.get('signing_order')}",
+                flush=True
+            )
+        print(
+            f"[SignerStatus] ────────────────────────────────────────────────────────",
+            flush=True
+        )
 
         return {
             "project_uuid":    project_uuid,
@@ -4396,6 +4460,25 @@ async def add_document_signer(
             "signer_role": signer_role,
         }).encode()
 
+        # ── LOG: signer add request ─────────────────────────────────────────────
+        _payload_log = _jsonSig.loads(_sig_payload.decode())
+        print(
+            f"[AddSigner] ──────────────────────────────────────────────────────",
+            flush=True
+        )
+        print(
+            f"[AddSigner] REQUEST  uuid={project_uuid} order={signing_order}",
+            flush=True
+        )
+        print(
+            f"[AddSigner]          email={email} role={signer_role} name={first_name} {last_name}",
+            flush=True
+        )
+        print(
+            f"[AddSigner]          payload={_payload_log}",
+            flush=True
+        )
+
         _sig_req = _ureqSig.Request(
             f"{_DC_BASE}/projects/{project_uuid}/signers?user_type=ENTERPRISE_API",
             data=_sig_payload,
@@ -4406,8 +4489,27 @@ async def add_document_signer(
         try:
             with _ureqSig.urlopen(_sig_req, timeout=20) as _r:
                 dc_resp = _jsonSig.loads(_r.read().decode())
+            # ── LOG: DC response ──────────────────────────────────────────────────
+            _dc_resp_data = dc_resp.get("data") or dc_resp
+            if isinstance(_dc_resp_data, list) and _dc_resp_data:
+                _first = _dc_resp_data[0]
+                print(
+                    f"[AddSigner] ✅ DC RESPONSE  HTTP=200",
+                    flush=True
+                )
+                print(
+                    f"[AddSigner]    signer_id={_first.get('id')} email={_first.get('email')}",
+                    flush=True
+                )
+                print(
+                    f"[AddSigner]    signer_role={_first.get('signer_role')} sequence={_first.get('sequence')} status={_first.get('status','pending')}",
+                    flush=True
+                )
+            else:
+                print(f"[AddSigner] ✅ DC RESPONSE  {dc_resp}", flush=True)
         except _uerrSig.HTTPError as _he:
             _err_body = _he.read().decode(errors="replace")
+            print(f"[AddSigner] ❌ DC ERROR  HTTP={_he.code}  body={_err_body[:300]}", flush=True)
             if _he.code == 409 or "already" in _err_body.lower():
                 dc_resp = {"already_added": True}
             else:
@@ -4436,6 +4538,28 @@ async def add_document_signer(
                     break
             _sig_apt["updated_at"] = _dt.now(_tz.utc).isoformat()
             _db.save_apt(_sig_apt)
+
+            # ── LOG: full signer order for this doc after save ──────────────────
+            for _d_check in _sig_apt.get("session_documents", []):
+                if _d_check.get("doconchain_project_uuid") == project_uuid or _d_check.get("project_uuid") == project_uuid:
+                    _signers_now = _d_check.get("signers", [])
+                    _sorted = sorted(_signers_now, key=lambda s: s.get("signing_order", 99))
+                    print(
+                        f"[AddSigner] ── SIGNER ORDER for {project_uuid[:12]} ({len(_sorted)} total) ──",
+                        flush=True
+                    )
+                    for _idx, _s in enumerate(_sorted):
+                        print(
+                            f"[AddSigner]   [{_idx+1}] order={_s.get('signing_order')} "
+                            f"email={_s.get('email')} role={_s.get('signer_role')} "
+                            f"name={_s.get('first_name','')} {_s.get('last_name','')}",
+                            flush=True
+                        )
+                    print(
+                        f"[AddSigner] ──────────────────────────────────────────────────────",
+                        flush=True
+                    )
+                    break
 
     finally:
         try:
