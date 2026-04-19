@@ -463,6 +463,8 @@ async def logout(response: Response):
 
 # Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ User Session Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
+
+
 @app.get("/api/auth/me")
 async def get_me(
     authorization: Optional[str] = Header(None),
@@ -1732,6 +1734,34 @@ _DC_APP_URL      = os.getenv("DOCONCHAIN_APP_URL",  "https://stg-app.doconchain.
 _DC_CLIENT_KEY   = os.getenv("DOCONCHAIN_CLIENT_KEY",    "U2FsdGVkX19dxrNafE8249yn0M/GMqq3WAbITHfKYl8=")
 _DC_CLIENT_SECRET= os.getenv("DOCONCHAIN_CLIENT_SECRET", "5sd07WmZyXJft2jEP8LOJyfGH")
 _DC_EMAIL        = os.getenv("DOCONCHAIN_EMAIL",         "stg_quanby@maildrop.cc")
+
+def _get_vault_uuid_for_project(project_uuid: str, dc_token: str) -> str:
+    """
+    Look up the vault UUID for a completed project by its project_uuid.
+    Returns vault UUID string or empty string if not found.
+    GET /vault/items returns completed projects with project_uuid field.
+    """
+    import urllib.request as _uvr, json as _jvr
+    try:
+        _page = 1
+        while True:
+            _url = f"{_DC_BASE}/vault/items?user_type=ENTERPRISE_API&per_page=50&page={_page}&user_items_only=no&api_integrated_projects_only=no"
+            _req = _uvr.Request(_url, headers={"Authorization": f"Bearer {dc_token}"}, method="GET")
+            with _uvr.urlopen(_req, timeout=20) as _r:
+                _resp = _jvr.loads(_r.read().decode())
+            _items = _resp.get("data", [])
+            for _item in _items:
+                if _item.get("project_uuid") == project_uuid:
+                    return _item.get("uuid", "")
+            _meta = _resp.get("meta", {})
+            if _page >= _meta.get("last_page", 1):
+                break
+            _page += 1
+    except Exception as _e:
+        print(f"[Vault] lookup failed for {project_uuid}: {_e}", flush=True)
+    return ""
+
+
 _DC_ORG_ID       = os.getenv("DOCONCHAIN_ORGANIZATION_ID", "1287")
 _DC_ORG_UUID     = os.getenv("DOCONCHAIN_ORGANIZATION_UUID", "ba2bbc98-10a2-4a91-81ad-e8abd0ab34eb")
 
@@ -1850,24 +1880,15 @@ def _get_dc_token(email: str = None) -> str:
     if env_token:
         return env_token
 
-    # Generate new token
-    boundary = "QLDCToken1a2b3c"
-    parts = [
-        f'--{boundary}\r\nContent-Disposition: form-data; name="client_key"\r\n\r\n{_DC_CLIENT_KEY}\r\n'.encode(),
-        f'--{boundary}\r\nContent-Disposition: form-data; name="client_secret"\r\n\r\n{_DC_CLIENT_SECRET}\r\n'.encode(),
-        f'--{boundary}\r\nContent-Disposition: form-data; name="email"\r\n\r\n{_email}\r\n'.encode(),
-        f'--{boundary}--\r\n'.encode(),
-    ]
-    body = b''.join(parts)
-    import urllib.request as _ureq, json as _json2
-    req = _ureq.Request(
+    # Generate new token — use requests (urllib has DNS issues in uvicorn worker context)
+    import requests as _rq, json as _json2
+    _resp = _rq.post(
         f'{_DC_BASE}/api/v2/generate/token',
-        data=body,
-        headers={'Content-Type': f'multipart/form-data; boundary={boundary}'},
-        method='POST'
+        data={'client_key': _DC_CLIENT_KEY, 'client_secret': _DC_CLIENT_SECRET, 'email': _email},
+        timeout=30,
     )
-    with _ureq.urlopen(req, timeout=30) as r:
-        data = _json2.loads(r.read().decode())
+    _resp.raise_for_status()
+    data = _resp.json()
 
     token_str = (data.get('data') or {}).get('token') or data.get('token')
     if not token_str:
@@ -1904,7 +1925,7 @@ def _add_dc_signer(project_uuid: str, email: str, first_name: str, last_name: st
     """Add a signer to a DoconChain project using the correct /projects/{uuid}/signers endpoint.
     sequence: signing group order (1 = first to sign, 2 = second, etc.)
     """
-    import urllib.request as _ureq_s, urllib.error as _uerr_s, json as _json_s
+    import requests as _rq_signer
     token = dc_token or _get_dc_token()
     # Map UI roles to DoconChain API values
     _dc_role_map = {
@@ -1913,30 +1934,63 @@ def _add_dc_signer(project_uuid: str, email: str, first_name: str, last_name: st
         "Notary":   "Signer",
     }
     _dc_role = _dc_role_map.get(signer_role, "Signer")
-    payload = _json_s.dumps({
+    payload = {
         "email": email,
         "first_name": first_name,
         "last_name": last_name,
         "type": "GUEST",
         "signer_role": _dc_role,
-        "sequence": sequence,
-    }).encode()
-    req = _ureq_s.Request(
-        f"{_DC_BASE}/projects/{project_uuid}/signers?user_type=ENTERPRISE_API",
-        data=payload,
-        headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"},
-        method="POST",
-    )
+        # Note: sequence param is ignored by DC staging — signing order is determined by insertion order.
+        # Always add client FIRST, ENP SECOND to ensure correct signing sequence.
+    }
+    print(f"[AddSigner] project={project_uuid[:12]} email={email} role={_dc_role} sequence={sequence}", flush=True)
     try:
-        with _ureq_s.urlopen(req, timeout=30) as r:
-            return _json_s.loads(r.read().decode())
-    except _uerr_s.HTTPError as he:
-        err = he.read().decode(errors="replace")
-        if he.code == 409 or "already" in err.lower():
+        _resp = _rq_signer.post(
+            f"{_DC_BASE}/api/v2/projects/{project_uuid}/signers?user_type=ENTERPRISE_API",
+            json=payload,
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=30,
+        )
+        if _resp.status_code == 409 or "already" in (_resp.text or "").lower():
+            print(f"[AddSigner] already added: {email}", flush=True)
             return {"already_added": True}
-        # 400 "Project not found" = wrong token — raise so caller can retry with correct token
-        if he.code == 400 and "not found" in err.lower():
+        if _resp.status_code == 400 and "not found" in (_resp.text or "").lower():
             raise Exception(f"Project {project_uuid} not accessible with this token (400). Check ENP token.")
+        if _resp.status_code == 401:
+            # Token may have expired — clear cache and retry ONCE with a fresh token
+            import time as _t401
+            # Determine which email this token was for by checking cache
+            for _ce, _cv in list(_dc_token_cache.items()):
+                if _cv[0] == token:
+                    del _dc_token_cache[_ce]
+                    break
+            print(f"[AddSigner] 401 on {project_uuid[:12]} — refreshing token and retrying", flush=True)
+            token = _get_dc_token()
+            _resp2 = _rq_signer.post(
+                f"{_DC_BASE}/api/v2/projects/{project_uuid}/signers?user_type=ENTERPRISE_API",
+                json=payload,
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=30,
+            )
+            if _resp2.status_code == 409 or "already" in (_resp2.text or "").lower():
+                print(f"[AddSigner] already added (retry): {email}", flush=True)
+                return {"already_added": True}
+            _resp2.raise_for_status()
+            result = _resp2.json()
+            _data2 = result.get('data') or result
+            if isinstance(_data2, dict):
+                print(f"[AddSigner] DC stored (retry): email={_data2.get('email')} sequence={_data2.get('sequence')}", flush=True)
+            return result
+        _resp.raise_for_status()
+        result = _resp.json()
+        # Log what DC actually stored for sequence verification
+        _data = result.get('data') or result
+        if isinstance(_data, dict):
+            print(f"[AddSigner] DC stored: email={_data.get('email')} sequence={_data.get('sequence')} status={_data.get('status')}", flush=True)
+        return result
+    except Exception as _e:
+        if 'already_added' not in str(_e):
+            print(f"[AddSigner] ERROR: {_e}", flush=True)
         raise
 
 
@@ -2239,7 +2293,7 @@ def _build_dc_stamp(enp_user: dict, apt: dict) -> str:
     if not full_name.upper().startswith("ATTY"):
         full_name = f"ATTY. {full_name}"
 
-    enp_role_number = p.get("commission_no", "")
+    enp_role_number = p.get("roll_no", "") or p.get("npn", "") or p.get("commission_no", "")  # roll number is the ENP notarial authority identifier
 
     stamp = {
         "seal": {
@@ -2457,25 +2511,28 @@ async def create_doconchain_project(
 
     # Auto-add ENP and client as signers via the correct /projects/{uuid}/signers endpoint
     _signer_results = {}
-    # ENP
     _enp_profile = user.get("profile") or {}
     _enp_first = user.get("first_name") or enp_name.split()[0] if enp_name else "ENP"
     _enp_last  = user.get("last_name")  or (" ".join(enp_name.split()[1:]) if enp_name and " " in enp_name else "")
-    try:
-        # ENP signs LAST (sequence=2) — client signs first (sequence=1)
-        _signer_results["enp"] = _add_dc_signer(project_uuid, user.get("email",""), _enp_first, _enp_last, "Signer", dc_token, sequence=2)
-    except Exception as _e:
-        _signer_results["enp"] = {"error": str(_e)[:100]}
-    # Client signs FIRST (sequence=1)
+
+    # CRITICAL: Add CLIENT first (sequence=1), then ENP (sequence=2).
+    # DC uses insertion order to determine signing order, not only the sequence param.
+    # ENP must be added LAST so DC queues client to sign first, then ENP (notary).
     _client_name_parts = apt.get("client_name","Client").split()
     _client_first = _client_name_parts[0] if _client_name_parts else "Client"
     _client_last  = " ".join(_client_name_parts[1:]) if len(_client_name_parts) > 1 else ""
     _client_email = apt.get("client_email","")
     if _client_email:
         try:
+            # Client added FIRST → signs FIRST (sequence=1)
             _signer_results["client"] = _add_dc_signer(project_uuid, _client_email, _client_first, _client_last, "Signer", dc_token, sequence=1)
         except Exception as _e:
             _signer_results["client"] = {"error": str(_e)[:100]}
+    try:
+        # ENP added SECOND → signs LAST (sequence=2, notary/ENP)
+        _signer_results["enp"] = _add_dc_signer(project_uuid, user.get("email",""), _enp_first, _enp_last, "Signer", dc_token, sequence=2)
+    except Exception as _e:
+        _signer_results["enp"] = {"error": str(_e)[:100]}
 
     apt["doconchain_project_uuid"] = project_uuid
     apt["doconchain_sign_link"] = sign_link
@@ -2702,8 +2759,7 @@ async def get_dc_token_endpoint(
     user = get_current_user(authorization, ql_access)
     if not user:
         raise HTTPException(401, "Unauthorized")
-    if user.get("role") != "attorney":
-        raise HTTPException(403, "ENP only")
+    # All authenticated users can use QuickSign
     try:
         token = _get_dc_token()
         return {
@@ -2769,7 +2825,7 @@ async def generate_sign_links(
 
     # Build ordered signer list: respect signing_order from saved signers
     # Each entry: {"email": ..., "signing_order": int}
-    import urllib.request as _ureq3, urllib.error as _uerr3, json as _json4
+    import requests as _rq3
 
     _ordered_signers = []
     _seen_emails = set()
@@ -2804,46 +2860,53 @@ async def generate_sign_links(
         dc_token = _get_dc_token(email=_DC_EMAIL)  # fallback to org
 
     def _gen_sign_link(signer_email: str) -> dict:
-        """Generate a sign link for one signer, with token fallback on 401."""
+        """Generate a sign link for one signer, with token fallback on 401.
+
+        For ENP (project owner): use POST /projects/{uuid}/link — returns api_token for auto-login.
+        For clients/guests: use POST /projects/{uuid}/link/generate?email=... — guest signer URL.
+        This prevents the ENP getting "SESSION ENDED" when clicking their sign link.
+        """
+        import requests as _rq_sl
         nonlocal dc_token
+        # All signers (ENP and clients) use /link/generate?email=...
+        # This generates the correct per-signer sign link from DC
+        # Note: ENP must have plotted fields first (plot link auto-logs them into DC)
+        # so their browser session is active when they open the sign link
         url = f"{_DC_BASE}/api/v2/projects/{project_uuid}/link/generate?email={signer_email}"
+        print(f"[SignLink] sign link for {signer_email}", flush=True)
         for _attempt in range(2):
-            _req = _ureq3.Request(
-                url, data=b"",
-                headers={"Content-Type": "application/json",
-                         "Authorization": f"Bearer {dc_token}",
-                         "Accept": "application/json"},
-                method="POST",
-            )
             try:
-                with _ureq3.urlopen(_req, timeout=30) as _r:
-                    _d = _json4.loads(_r.read().decode())
-                    link = _d.get("message") or (_d.get("data") or {}).get("link") or _d.get("link")
-                    if link and link.startswith("http"):
-                        # Resolve short link to get embedded auth token (302 Location header)
-                        resolved = link
-                        if "link.doconchain.com" in link or "doconchain.com" in link:
-                            import urllib.request as _ureq_r2, urllib.error as _uerr_r2
-                            class _NoRedir2(_ureq_r2.HTTPRedirectHandler):
-                                def http_error_302(self, req, fp, code, msg, headers):
-                                    raise _uerr_r2.HTTPError(req.full_url, code, msg, headers, fp)
-                                http_error_301 = http_error_302
-                                http_error_303 = http_error_302
-                                http_error_307 = http_error_302
-                            _opener2 = _ureq_r2.build_opener(_NoRedir2)
-                            try:
-                                _r3 = _ureq_r2.Request(link, headers={"User-Agent": "Mozilla/5.0"}, method="GET")
-                                with _opener2.open(_r3, timeout=8) as _rr: resolved = link
-                            except _uerr_r2.HTTPError as _he2:
-                                _loc = _he2.headers.get("Location", "")
-                                if _loc and _loc.startswith("http"):
-                                    resolved = _loc
-                            except Exception: pass
-                        return {"email": signer_email, "link": resolved, "status": "ok"}
-                    return {"email": signer_email, "link": None, "status": "no_link", "raw": str(_d)[:100]}
-            except _uerr3.HTTPError as he:
-                err = he.read().decode(errors="replace")
-                if he.code == 401 and _attempt == 0:
+                _resp_sl = _rq_sl.post(
+                    url,
+                    headers={"Content-Type": "application/json",
+                             "Authorization": f"Bearer {dc_token}",
+                             "Accept": "application/json"},
+                    timeout=30,
+                )
+                if _resp_sl.status_code == 401 and _attempt == 0:
+                    # Token expired — drop cache and retry with org token
+                    _dc_token_cache.pop(_enp_email_for_token, None)
+                    _dc_token_cache.pop(_DC_EMAIL, None)
+                    dc_token = _get_dc_token(email=_DC_EMAIL)
+                    continue
+                _resp_sl.raise_for_status()
+                _d = _resp_sl.json()
+                link = _d.get("message") or (_d.get("data") or {}).get("link") or _d.get("link")
+                if link and link.startswith("http"):
+                    # Resolve short link to get embedded auth token (302 Location header)
+                    resolved = link
+                    if "link.doconchain.com" in link or "doconchain.com" in link:
+                        try:
+                            _r3 = _rq_sl.get(link, headers={"User-Agent": "Mozilla/5.0"}, allow_redirects=False, timeout=8)
+                            _loc = _r3.headers.get("Location", "")
+                            if _loc and _loc.startswith("http"):
+                                resolved = _loc
+                        except Exception: pass
+                    return {"email": signer_email, "link": resolved, "status": "ok"}
+                return {"email": signer_email, "link": None, "status": "no_link", "raw": str(_d)[:100]}
+            except Exception as he:
+                err = str(he)[:200]
+                if "401" in err and _attempt == 0:
                     # Token expired or wrong owner — drop cache and retry with org token
                     _dc_token_cache.pop(_enp_email_for_token, None)
                     _dc_token_cache.pop(_DC_EMAIL, None)
@@ -3053,17 +3116,22 @@ async def doconchain_webhook(request: Request):
                                     "status": new_status, "signed_at": signed_at, "source": "webhook"})
             _doc["signature_requests"] = sr_list
             _db.save_apt(_apt)
-            # Trigger registry population if project is completed
+            # Registry population ONLY happens when session is ended — NOT on webhook
+            # Premature registry population would fetch incomplete documents
             if new_status == "SIGNED" and "complete" in event_type:
-                import threading as _wh_t
-                _wh_enp_id = _apt.get("enp_id", "")
-                if _wh_enp_id:
-                    print(f"[Webhook] complete event for {project_uuid[:12]} → registry populate", flush=True)
-                    _wh_t.Thread(
-                        target=_populate_registry_bg,
-                        args=(_aid, _wh_enp_id),
-                        daemon=True
-                    ).start()
+                _session_ended = _apt.get("session_status") == "ended"
+                if _session_ended:
+                    import threading as _wh_t
+                    _wh_enp_id = _apt.get("enp_id", "")
+                    if _wh_enp_id:
+                        print(f"[Webhook] session already ended + complete event for {project_uuid[:12]} → registry populate", flush=True)
+                        _wh_t.Thread(
+                            target=_populate_registry_bg,
+                            args=(_aid, _wh_enp_id),
+                            daemon=True
+                        ).start()
+                else:
+                    print(f"[Webhook] complete event for {project_uuid[:12]} — session not yet ended, skipping registry", flush=True)
             return {"ok": True, "updated": project_uuid, "signer": signer_email, "status": new_status}
 
     return {"ok": True, "note": "project not found in active appointments"}
@@ -3077,7 +3145,14 @@ async def get_signer_status(
     authorization: Optional[str] = Header(None),
     ql_access: Optional[str] = Cookie(default=None),
 ):
-    """Poll DoconChain for real-time signer status (signed/pending) for each signer."""
+    """Poll DoconChain for real-time signer status (signed/pending) for each signer.
+
+    Diagnostic logging (points 1-4):
+      - UUID verified end-to-end (created → stored → used for status)
+      - DC is source of truth for completion status
+      - Signer email normalization logged
+      - Token scope logged per request
+    """
     user = get_current_user(authorization, ql_access)
     if not user:
         raise HTTPException(401, "Unauthorized")
@@ -3088,40 +3163,93 @@ async def get_signer_status(
     if user["id"] not in (apt.get("enp_id"), apt.get("client_id")):
         raise HTTPException(403, "Not authorized for this session")
 
-    import urllib.request as _ureq_s2, urllib.error as _uerr_s2, json as _json_s2
+    # ── DIAGNOSTIC: Verify UUID is consistent with what's stored in DB (Point 1) ──
+    _stored_uuid = None
+    for _chk_doc in apt.get("session_documents", []):
+        _chk_uuid = _chk_doc.get("doconchain_project_uuid") or _chk_doc.get("project_uuid")
+        if _chk_uuid == project_uuid:
+            _stored_uuid = _chk_uuid
+            break
+    if _stored_uuid != project_uuid:
+        print(f"[SignerStatus WARN] UUID MISMATCH! requested={project_uuid} stored={_stored_uuid} apt={apt_id}", flush=True)
+    else:
+        print(f"[SignerStatus] UUID verified: {project_uuid[:12]} matches DB for apt={apt_id}", flush=True)
+
+    import requests as _rq_ss, time as _time_ss
     try:
-        # Use ENP token first, fallback to org token
+        # Use ENP token (Point 4: consistent token scope)
         _enp_email = apt.get("enp_email") or _DC_EMAIL
         try:
             dc_token = _get_dc_token(email=_enp_email)
         except Exception:
             dc_token = _get_dc_token(email=_DC_EMAIL)
+            _enp_email = _DC_EMAIL
 
-        req = _ureq_s2.Request(
-            f"{_DC_BASE}/api/v2/projects/{project_uuid}?user_type=ENTERPRISE_API",
-            headers={"Authorization": f"Bearer {dc_token}", "Accept": "application/json"},
-            method="GET",
+        print(f"[SignerStatus] token_email={_enp_email} uuid={project_uuid[:12]}", flush=True)
+
+        _ss_url = f"{_DC_BASE}/api/v2/projects/{project_uuid}?user_type=ENTERPRISE_API"
+        dc_data = None
+        _ss_last_status = 0
+
+        # Retry up to 3 times — handles cross-worker token cache races
+        for _ss_attempt in range(3):
+            _ss_resp = _rq_ss.get(_ss_url, headers={"Authorization": f"Bearer {dc_token}", "Accept": "application/json"}, timeout=15)
+            _ss_last_status = _ss_resp.status_code
+            if _ss_resp.status_code == 200:
+                dc_data = _ss_resp.json()
+                break
+            if _ss_resp.status_code == 401:
+                # Token race — clear ALL caches, force fresh token
+                _dc_token_cache.pop(_enp_email, None)
+                _dc_token_cache.pop(_DC_EMAIL, None)
+                _wait = 0.3 * (2 ** _ss_attempt)  # 0.3s, 0.6s, 1.2s
+                print(f"[SignerStatus] 401 attempt {_ss_attempt+1} — clearing cache, retry in {_wait:.1f}s", flush=True)
+                _time_ss.sleep(_wait)
+                try:
+                    dc_token = _get_dc_token(email=_DC_EMAIL)
+                    _enp_email = _DC_EMAIL
+                except Exception as _te:
+                    print(f"[SignerStatus] token refresh failed: {_te}", flush=True)
+                continue
+            # Non-401 error — don't retry
+            break
+
+        if dc_data is None:
+            # DC auth failed for this project — fall back to internal DB data (no 502)
+            print(f"[SignerStatus] DC {_ss_last_status} for {project_uuid[:12]} — using internal fallback", flush=True)
+            dc_signers = []
+            project_status = "unknown"
+            dc_completed_at = None
+        else:
+            project = dc_data.get("data") or dc_data
+            dc_signers = project.get("signers", [])
+            project_status = project.get("status", "")
+            dc_completed_at = project.get("completed_at") or project.get("completedAt")
+
+        # ── DIAGNOSTIC: Point 2 — DC source of truth completion check ────────────
+        def _is_signer_signed(s):
+            """Match reference isSignerSigned: status SIGNED/COMPLETED OR non-empty signed_at."""
+            status_upper = (s.get("status") or "").upper()
+            has_signed_status = status_upper in ("SIGNED", "COMPLETED")
+            has_signed_at = bool(s.get("signed_at"))
+            return has_signed_status or has_signed_at
+
+        _dc_all_signed = all(_is_signer_signed(s) for s in dc_signers) if dc_signers else False
+        print(
+            f"[SignerStatus] DC status={project_status} completed_at={dc_completed_at} "
+            f"signers={len(dc_signers)} all_signed={_dc_all_signed} uuid={project_uuid[:12]}",
+            flush=True
         )
-        try:
-            with _ureq_s2.urlopen(req, timeout=15) as r:
-                dc_data = _json_s2.loads(r.read().decode())
-        except _uerr_s2.HTTPError as he:
-            if he.code == 401:
-                # Try org token
-                dc_token = _get_dc_token(email=_DC_EMAIL)
-                req2 = _ureq_s2.Request(
-                    f"{_DC_BASE}/api/v2/projects/{project_uuid}?user_type=ENTERPRISE_API",
-                    headers={"Authorization": f"Bearer {dc_token}", "Accept": "application/json"},
-                    method="GET",
-                )
-                with _ureq_s2.urlopen(req2, timeout=15) as r2:
-                    dc_data = _json_s2.loads(r2.read().decode())
-            else:
-                raise
-
-        project = dc_data.get("data") or dc_data
-        dc_signers = project.get("signers", [])
-        project_status = project.get("status", "")
+        # ── DIAGNOSTIC: Point 3 — Log each signer identity for mismatch detection ─
+        for _s in dc_signers:
+            _s_email = (_s.get("email") or "").lower().strip()
+            _s_status = (_s.get("status") or "").upper()
+            _s_role = _s.get("role") or _s.get("signer_role") or "Signer"
+            _s_order = _s.get("sequence") or _s.get("signing_order") or "?"
+            print(
+                f"[SignerStatus]   signer email={_s_email} role={_s_role} order={_s_order} status={_s_status}",
+                flush=True
+            )
 
         # Build status map: email → {signed: bool, signed_at: str|None}
         # Build internal rows map (primary source of truth)
@@ -3202,22 +3330,34 @@ async def get_signer_status(
                             _d4["signature_requests"] = list(internal_sr.values())
                             # Mark doc as completed if ALL signers have signed
                             _all_sr = list(internal_sr.values())
+                            # Match reference: isFullySigned requires BOTH:
+                            # 1. All signers have SIGNED status
+                            # 2. DC projectStatus === COMPLETED OR completedAt is set
+                            # (internal_sr tracks DC signer status synced from DC source of truth)
+                            # Staging workaround: DC sometimes sets signed_at on all signers
+                            # but never flips project to COMPLETED. Treat as complete if all
+                            # signers have signed_at set (match reference isFullySigned logic).
+                            _staging_all_have_signed_at = (
+                                len(_all_sr) > 0 and
+                                all(bool(r.get("signed_at")) for r in _all_sr)
+                            )
+                            _dc_project_completed = (
+                                (project_status or "").upper() == "COMPLETED"
+                                or bool(dc_completed_at)
+                                or _staging_all_have_signed_at  # Staging fallback
+                            )
                             _all_signed_now = (
                                 len(_all_sr) > 0 and
-                                all(r.get("status") == "SIGNED" for r in _all_sr)
+                                all(r.get("status") == "SIGNED" for r in _all_sr) and
+                                _dc_project_completed  # DC must confirm completion, not just individual signers
                             )
                             if _all_signed_now and _d4.get("status") != "completed":
                                 _d4["status"] = "completed"
-                                _d4["completed_at"] = _dt.now(_tz.utc).isoformat()
-                                print(f"[SignerStatus] All signed — doc {project_uuid[:12]} marked completed, triggering registry", flush=True)
-                                # Trigger registry population immediately (don't wait for end_session)
-                                import threading as _t_ss
-                                _enp_id_ss = apt.get("enp_id", "")
-                                _t_ss.Thread(
-                                    target=_populate_registry_bg,
-                                    args=(apt_id, _enp_id_ss),
-                                    daemon=True,
-                                ).start()
+                                _d4["completed_at"] = dc_completed_at or _dt.now(_tz.utc).isoformat()
+                                print(f"[SignerStatus] DC COMPLETED + all signers SIGNED — doc {project_uuid[:12]} marked completed. Registry will populate on session end.", flush=True)
+                                # Registry is populated ONLY on session end, not here.
+                            elif not _dc_project_completed and all(r.get("status") == "SIGNED" for r in _all_sr) and len(_all_sr) > 0:
+                                print(f"[SignerStatus] All signers signed internally but DC project not yet COMPLETED (status={project_status}) — waiting for DC confirmation.", flush=True)
                             _db.save_apt(_sync_apt)
                             break
 
@@ -3246,26 +3386,24 @@ async def get_plot_link(
     user = get_current_user(authorization, ql_access)
     if not user:
         raise HTTPException(401, "Unauthorized")
-    if user.get("role") != "attorney":
-        raise HTTPException(403, "ENP only")
+    # All authenticated users can use QuickSign
     if not project_uuid or not project_uuid.strip():
         raise HTTPException(400, "project_uuid required")
 
-    import urllib.request as _ureq2, urllib.error as _uerr2, json as _json3
+    import requests as _rq2
     try:
         # Per spec: get a fresh token for each attempt (invalidate cache to force re-login).
         # Try ENP email first, then org email as fallback.
         _plot_email = user.get("email") or _DC_EMAIL
 
         def _call_plot_link(token):
-            _req = _ureq2.Request(
+            _resp2 = _rq2.post(
                 f"{_DC_BASE}/api/v2/projects/{project_uuid}/link?user_type=ENTERPRISE_API",
-                data=None,
                 headers={"Accept": "application/json", "Authorization": f"Bearer {token}"},
-                method="POST",
+                timeout=30,
             )
-            with _ureq2.urlopen(_req, timeout=30) as _r:
-                return _json3.loads(_r.read().decode())
+            _resp2.raise_for_status()
+            return _resp2.json()
 
         # IMPORTANT: Only use the ENP's own email — NEVER fall back to _DC_EMAIL.
         # The org default email (stg_quanby@maildrop.cc) generates a different link
@@ -3340,34 +3478,28 @@ async def get_plot_link(
         # Following all the way to the app gives an "Oops" page (no browser session).
         resolved_link = link
         if "link.doconchain.com" in link or "doconchain.com" in link:
-            import urllib.request as _ureq_r, urllib.error as _uerr_r
-
-            class _NoRedirect(_ureq_r.HTTPRedirectHandler):
-                def http_error_302(self, req, fp, code, msg, headers):
-                    raise _uerr_r.HTTPError(req.full_url, code, msg, headers, fp)
-                http_error_301 = http_error_302
-                http_error_303 = http_error_302
-                http_error_307 = http_error_302
-
-            _opener = _ureq_r.build_opener(_NoRedirect)
-            _r3 = _ureq_r.Request(
-                link,
-                headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"},
-                method="GET",
-            )
+            import requests as _rq_redirect
             try:
-                with _opener.open(_r3, timeout=10) as _rr:
-                    resolved_link = link
-                    print(f"[PlotLink] short link returned 200 (no redirect), using original", flush=True)
-            except _uerr_r.HTTPError as _he:
-                _loc = _he.headers.get("Location", "")
-                if _loc and _loc.startswith("http"):
-                    resolved_link = _loc
-                    _has_token = "api_token=" in resolved_link
-                    print(f"[PlotLink] short link resolved via {_he.code} redirect (has api_token: {_has_token})", flush=True)
+                # Use requests with allow_redirects=False to capture 302 Location
+                # which contains the api_token for auto-login
+                _r3 = _rq_redirect.get(
+                    link,
+                    headers={"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"},
+                    allow_redirects=False,
+                    timeout=10,
+                )
+                if _r3.status_code in (301, 302, 303, 307, 308):
+                    _loc = _r3.headers.get("Location", "")
+                    if _loc and _loc.startswith("http"):
+                        resolved_link = _loc
+                        _has_token = "api_token=" in resolved_link
+                        print(f"[PlotLink] short link resolved via {_r3.status_code} redirect (has api_token: {_has_token})", flush=True)
+                    else:
+                        resolved_link = link
+                        print(f"[PlotLink] short link: {_r3.status_code} but no Location, using original", flush=True)
                 else:
                     resolved_link = link
-                    print(f"[PlotLink] short link resolve: {_he.code} but no Location, using original", flush=True)
+                    print(f"[PlotLink] short link returned {_r3.status_code} (no redirect), using original", flush=True)
             except Exception as _re:
                 resolved_link = link
                 print(f"[PlotLink] short link resolve failed: {_re}, using original", flush=True)
@@ -4013,20 +4145,17 @@ async def session_upload_document(
 
     try:
         def _mp(url, fields, files=None, hdrs=None):
-            b = "QLB9f3a2c1d"
-            parts = []
-            for k, v in fields.items():
-                parts.append(f'''--{b}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n'''.encode())
+            """Multipart POST using requests (urllib has DNS issues in uvicorn workers)."""
+            import requests as _rq_mp
+            _files = {}
+            _data = dict(fields)
             if files:
                 for k, (fn, fd, ft) in files.items():
-                    parts.append(f'''--{b}\r\nContent-Disposition: form-data; name="{k}"; filename="{fn}"\r\nContent-Type: {ft}\r\n\r\n'''.encode() + fd + b'\r\n')
-            parts.append(f'''--{b}--\r\n'''.encode())
-            body = b''.join(parts)
-            h = {'Content-Type': f'multipart/form-data; boundary={b}'}
-            if hdrs: h.update(hdrs)
-            req = _urllib_req.Request(url, data=body, headers=h, method='POST')
-            with _urllib_req.urlopen(req, timeout=30) as r:
-                return json.loads(r.read().decode())
+                    _files[k] = (fn, fd, ft)
+            _headers = dict(hdrs or {})
+            _r = _rq_mp.post(url, data=_data, files=_files if _files else None, headers=_headers, timeout=30)
+            _r.raise_for_status()
+            return _r.json()
 
         # Use ENP's email so they own the project (auto-auth on plot link)
         _enp_email_dc = (enp_user or user or {}).get('email') or DC_EMAIL
@@ -4071,35 +4200,67 @@ async def session_upload_document(
     }
     doc_fee = _FEE_DEFAULTS.get(notarization_type, "₱100 – ₱300")
 
-    # Auto-add ENP and client as signers
-    try:
-        _enp_u = enp_user or user
-        _ef = _enp_u.get("first_name","") or "ENP"
-        _el = _enp_u.get("last_name","") or ""
-        _ee = _enp_u.get("email","")
-        if _ee: _add_dc_signer(project_uuid, _ee, _ef, _el, "Signer", dc_token, sequence=2)  # ENP signs last
-    except Exception: pass
+    # Auto-add ENP and client as signers — ENP is always LAST (sequence=2)
+    _doc_signers_list = []
+
+    # Client signs first (sequence=1)
     try:
         _cn = apt.get("client_name","Client").split()
         _cf = _cn[0] if _cn else "Client"
         _cl = " ".join(_cn[1:]) if len(_cn)>1 else ""
-        _ce = apt.get("client_email","")
-        if _ce: _add_dc_signer(project_uuid, _ce, _cf, _cl, "Signer", dc_token, sequence=1)  # Client signs first
-    except Exception: pass
+        _ce = (apt.get("client_email","") or "").lower().strip()
+        if _ce:
+            _add_dc_signer(project_uuid, _ce, _cf, _cl, "Signer", dc_token, sequence=1)
+            _doc_signers_list.append({
+                "email": _ce,
+                "name": f"{_cf} {_cl}".strip(),
+                "first_name": _cf,
+                "last_name": _cl,
+                "signer_role": "Signer",
+                "signing_order": 1,
+                "status": None,
+            })
+            print(f"[UploadDoc] Added client signer: {_ce} seq=1", flush=True)
+    except Exception as _cs_err:
+        print(f"[UploadDoc] Client signer error: {_cs_err}", flush=True)
+
+    # ENP signs last (sequence=2)
+    try:
+        _enp_u = enp_user or user
+        _ef = _enp_u.get("first_name","") or "ENP"
+        _el = _enp_u.get("last_name","") or ""
+        _ee = (_enp_u.get("email","") or "").lower().strip()
+        if _ee:
+            _add_dc_signer(project_uuid, _ee, _ef, _el, "Signer", dc_token, sequence=2)
+            _doc_signers_list.append({
+                "email": _ee,
+                "name": f"{_ef} {_el}".strip(),
+                "first_name": _ef,
+                "last_name": _el,
+                "signer_role": "ENP",
+                "signing_order": 2,
+                "status": None,
+                "is_enp": True,
+            })
+            print(f"[UploadDoc] Added ENP signer: {_ee} seq=2", flush=True)
+    except Exception as _es_err:
+        print(f"[UploadDoc] ENP signer error: {_es_err}", flush=True)
 
     doc_entry = {
-        "name": doc_name,           # used by frontend addDocumentToList()
-        "doc_name": doc_name,       # kept for backward compat
+        "name": doc_name,
+        "doc_name": doc_name,
         "notarization_type": notarization_type,
         "description": description, "file_name": file_name,
-        "project_uuid": project_uuid,            # used by frontend
-        "doconchain_project_uuid": project_uuid, # kept for signer lookup
+        "project_uuid": project_uuid,
+        "doconchain_project_uuid": project_uuid,
         "sign_link": sign_link,
-        "fee": doc_fee,             # ENP-editable notarization fee
+        "fee": doc_fee,
         "uploaded_by": user["id"],
         "uploaded_by_name": f"{user.get('first_name','')} {user.get('last_name','')}".strip(),
         "uploaded_at": _dt.now(_tz.utc).isoformat(),
-        "signers": [],
+        # Signers now populated — client (seq=1) then ENP (seq=2)
+        # This ensures signer-status can correlate DC signers with local DB
+        "signers": _doc_signers_list,
     }
     _doc_apt = _db.get_apt(apt_id)
     if _doc_apt:
@@ -4126,8 +4287,7 @@ async def update_document_fee(
     user = get_current_user(authorization, ql_access)
     if not user:
         raise HTTPException(401, "Unauthorized")
-    if user.get("role") != "attorney":
-        raise HTTPException(403, "ENP only")
+    # All authenticated users can use QuickSign
 
     apt = _db.get_apt(apt_id)
     if not apt:
@@ -4237,7 +4397,7 @@ async def add_document_signer(
         }).encode()
 
         _sig_req = _ureqSig.Request(
-            f"{_DC_BASE}/projects/{project_uuid}/signers?user_type=ENTERPRISE_API",
+            f"{_DC_BASE}/api/v2/projects/{project_uuid}/signers?user_type=ENTERPRISE_API",
             data=_sig_payload,
             headers={"Content-Type": "application/json", "Authorization": f"Bearer {_dc_token_s}"},
             method="POST",
@@ -4312,8 +4472,19 @@ def _act_exists(enp_id: str, dc_uuid: str) -> bool:
     """Check if a registry act already exists (DB-backed)."""
     return _db.act_exists(enp_id, dc_uuid)
 
+_registry_in_progress: set = set()  # FIX: prevents double-population
+
 def _populate_registry_bg(apt_id: str, enp_id: str) -> None:
-    """Background thread: populate registry acts from a completed appointment."""
+    """Background thread: populate registry acts from a completed appointment.
+    
+    IMPORTANT: Only populates when session_status == "ended".
+    Documents must be from a completed, ended session to ensure they are fully notarized.
+    """
+    # FIX: Dedup guard — prevent concurrent double-population for same apt_id
+    if apt_id in _registry_in_progress:
+        print(f'[Registry] Already in progress for {apt_id}, skipping duplicate', flush=True)
+        return
+    _registry_in_progress.add(apt_id)
     try:
         import urllib.request as _ureg, json as _jreg
 
@@ -4322,6 +4493,11 @@ def _populate_registry_bg(apt_id: str, enp_id: str) -> None:
         if not apt:
             return
         apt = dict(apt)
+
+        # GUARD: Only populate registry when session has ended
+        if apt.get("session_status") != "ended":
+            print(f'[Registry] SKIPPED apt={apt_id} — session_status={apt.get("session_status")} (must be "ended")', flush=True)
+            return
 
         # Get ENP user info
         enp_user = get_user(enp_id)
@@ -4356,39 +4532,98 @@ def _populate_registry_bg(apt_id: str, enp_id: str) -> None:
             else:
                 return
 
-        # ── Fetch all DC project data OUTSIDE the lock (prevents deadlock) ──────
-        # The _registry_lock must not be held during network I/O
-        _dc_items = {}  # dc_uuid -> fetched DC project data
+        # ── Fetch all DC project data from Vault — OUTSIDE the lock (prevents deadlock) ──
+        # Uses GET /vault/items/{uuid}?user_type=ENTERPRISE_API — the authoritative
+        # endpoint for completed notarized documents. Only completed docs appear here.
+        import requests as _rq_vault
+        _dc_items = {}  # dc_uuid -> vault item data
         for doc in session_docs:
             dc_uuid = doc.get("doconchain_project_uuid") or doc.get("project_uuid")
             if not dc_uuid:
                 continue
             # Quick check: already in registry?
             if _act_exists(enp_id, dc_uuid):
+                print(f'[Registry] Already in registry: {dc_uuid[:12]}, skipping', flush=True)
                 continue
-            item = {}
-            for _dc_url in [
-                f"{_DC_BASE}/vault/items/{dc_uuid}?user_type=ENTERPRISE_API",
-                f"{_DC_BASE}/api/v2/projects/{dc_uuid}?user_type=ENTERPRISE_API",
-            ]:
-                try:
-                    _proj_req = _ureg.Request(
-                        _dc_url,
-                        headers={"Authorization": f"Bearer {dc_token}"},
-                        method="GET",
-                    )
-                    with _ureg.urlopen(_proj_req, timeout=15) as _pr:
-                        _proj_data = _jreg.loads(_pr.read().decode())
-                    _d = _proj_data.get("data") or _proj_data.get("message") or _proj_data
+            # Fetch from vault — only completed projects appear here
+            _vault_url = f"{_DC_BASE}/vault/items/{dc_uuid}?user_type=ENTERPRISE_API"
+            try:
+                _vault_resp = _rq_vault.get(
+                    _vault_url,
+                    headers={"Authorization": f"Bearer {dc_token}"},
+                    timeout=20,
+                )
+                if _vault_resp.status_code == 200:
+                    _proj_data = _vault_resp.json()
+                    _d = _proj_data.get("data") or {}
                     if isinstance(_d, list):
                         _d = _d[0] if _d else {}
-                    if isinstance(_d, dict) and (_d.get("status") or _d.get("uuid")):
-                        item = _d
-                        break
-                except Exception:
-                    continue
-            if item:
-                _dc_items[dc_uuid] = item
+                    # Vault only returns completed docs — status should be "completed"
+                    _vault_status = (_d.get("status") or "").lower()
+                    if _vault_status == "completed" and (_d.get("uuid") or _d.get("project_uuid")):
+                        # Store vault item — dc_file_url = data.url (top-level sealed PDF per DC spec)
+                        _d["_dc_file_url"] = _d.get("url") or ""
+                        _d["_dc_file_name"] = _d.get("file_name") or "notarized-document.pdf"
+                        if not _d["_dc_file_url"]:
+                            # Fallback: files[].file_url (DC vault spec)
+                            for _vf in (_d.get("files") or []):
+                                _vfu = _vf.get("file_url") or _vf.get("url") or ""
+                                if _vfu:
+                                    _d["_dc_file_url"] = _vfu
+                                    _d["_dc_file_name"] = _vf.get("file_name") or _d["_dc_file_name"]
+                                    break
+                        _dc_items[dc_uuid] = _d
+                        print(f'[Registry] Vault OK: {dc_uuid[:12]} status={_vault_status} ref={_d.get("reference_number","")} file_url={bool(_d["_dc_file_url"])}', flush=True)
+                    else:
+                        print(f'[Registry] Vault returned uuid={dc_uuid[:12]} status={_vault_status} — not completed, skipping', flush=True)
+                elif _vault_resp.status_code == 404:
+                    print(f'[Registry] Vault 404 for {dc_uuid[:12]} — document not yet in vault (not completed)', flush=True)
+                elif _vault_resp.status_code == 401:
+                    # Token expired — refresh and retry once
+                    print(f'[Registry] Vault 401 for {dc_uuid[:12]} — refreshing token and retrying', flush=True)
+                    try:
+                        dc_token = _get_dc_token(email=enp_email)
+                        _vault_resp2 = _rq_vault.get(
+                            _vault_url,
+                            headers={"Authorization": f"Bearer {dc_token}"},
+                            timeout=20,
+                        )
+                        if _vault_resp2.status_code == 200:
+                            _proj_data2 = _vault_resp2.json()
+                            _d2 = _proj_data2.get("data") or {}
+                            if isinstance(_d2, list):
+                                _d2 = _d2[0] if _d2 else {}
+                            if (_d2.get("status") or "").lower() == "completed":
+                                _dc_items[dc_uuid] = _d2
+                                print(f'[Registry] Vault OK (retry): {dc_uuid[:12]}', flush=True)
+                    except Exception as _retry_err:
+                        print(f'[Registry] Vault retry failed: {_retry_err}', flush=True)
+                elif _vault_resp.status_code == 400:
+                    # Vault 400 = project not yet indexed (not completed or still processing).
+                    # ONLY create a local fallback entry if ALL internal signature_requests
+                    # have status=SIGNED — prevents premature/false registry entries.
+                    _local_srs = doc.get("signature_requests", [])
+                    _all_sr_signed = (
+                        len(_local_srs) > 0 and
+                        all(r.get("status") == "SIGNED" for r in _local_srs)
+                    )
+                    if _all_sr_signed:
+                        print(f'[Registry] Vault 400 for {dc_uuid[:12]} but all signers SIGNED locally — local fallback', flush=True)
+                        _dc_items[dc_uuid] = {
+                            "status": "completed",
+                            "uuid": dc_uuid,
+                            "project_uuid": dc_uuid,
+                            "reference_number": None,
+                            "completed_at": None,
+                            "signers": doc.get("signers", []),
+                            "_local_fallback": True,
+                        }
+                    else:
+                        print(f'[Registry] Vault 400 for {dc_uuid[:12]} and signers NOT all signed — skipping (doc not complete)', flush=True)
+                else:
+                    print(f'[Registry] Vault HTTP {_vault_resp.status_code} for {dc_uuid[:12]}', flush=True)
+            except Exception as _vault_err:
+                print(f'[Registry] Vault fetch error for {dc_uuid[:12]}: {_vault_err}', flush=True)
 
         # ── Write phase: upsert book + acts into DB ───────────────────────────
         _upsert_book(enp_id, enp_name, roll_no, commission_no)
@@ -4405,15 +4640,17 @@ def _populate_registry_bg(apt_id: str, enp_id: str) -> None:
             if not item:
                 continue
 
-            # Normalise status: DC uses "Completed" (capital C) or "completed"
+            # Items in _dc_items are ALREADY confirmed as status="completed" from vault.
+            # The vault endpoint (GET /vault/items/{uuid}) only returns completed projects.
             dc_status = (item.get("status") or "").lower()
             completed_at = item.get("completed_at") or item.get("completedAt")
-            # Vault returns status="completed"; projects returns "Completed" or "to sign"
-            # Also check if vault item has a signed file URL (top-level url = signed doc)
-            _has_signed_file = bool(item.get("url") and item.get("status", "").lower() == "completed")
-            if dc_status != "completed" and not completed_at and not _has_signed_file:
-                print(f'[Registry] Skip apt={apt_id} uuid={dc_uuid[:12]} status={dc_status} (not completed)', flush=True)
-                continue  # only insert completed documents
+
+            # Belt-and-suspenders: double check vault status is completed
+            if dc_status != "completed":
+                print(f'[Registry] Unexpected: vault item {dc_uuid[:12]} has status={dc_status} — skipping', flush=True)
+                continue
+
+            print(f'[Registry] Inserting completed vault doc: apt={apt_id} uuid={dc_uuid[:12]} ref={item.get("reference_number","")}', flush=True)
 
             doc_name = (
                 doc.get("doc_name") or
@@ -4502,6 +4739,7 @@ def _populate_registry_bg(apt_id: str, enp_id: str) -> None:
                 "apt_id": apt_id,
                 "doc_name": doc_name,
                 "doconchain_project_uuid": dc_uuid,
+                "dc_project_uuid": dc_uuid,          # alias for UI compat
                 "act_type": act_type,
                 "executed_at": executed_at,
                 "principal_name": principal_name,
@@ -4511,6 +4749,9 @@ def _populate_registry_bg(apt_id: str, enp_id: str) -> None:
                 "dc_signers_snapshot": dc_signers_snapshot,
                 "dc_status": dc_status,
                 "dc_reference_number": dc_ref_number,
+                "dc_reference_no": dc_ref_number,    # alias for UI compat
+                "dc_file_url": item.get("_dc_file_url") or item.get("url") or "",
+                "dc_file_name": item.get("_dc_file_name") or item.get("file_name") or "",
                 "location": "Remote Electronic Notarization",
                 "sc_synced": False,
                 "sc_registry_id": None,
@@ -4561,6 +4802,7 @@ def _populate_registry_bg(apt_id: str, enp_id: str) -> None:
                                 'commission_no': commission_no, 'apt_id': apt_id,
                                 'doc_name': doc.get('doc_name') or _rd2.get('name') or 'Document',
                                 'doconchain_project_uuid': dc_uuid2,
+                                'dc_project_uuid': dc_uuid2,
                                 'act_type': (doc.get('notarization_type') or apt.get('notarization_type') or 'ACKNOWLEDGMENT').upper(),
                                 'executed_at': _rcomp2 or _dt.now(_tz.utc).isoformat(),
                                 'principal_name': principal_name, 'principal_email': principal_email,
@@ -4568,6 +4810,7 @@ def _populate_registry_bg(apt_id: str, enp_id: str) -> None:
                                 'dc_signers_snapshot': _rd2.get('signers') or [],
                                 'dc_status': _rstat2,
                                 'dc_reference_number': _rd2.get('reference_number') or '',
+                                'dc_reference_no': _rd2.get('reference_number') or '',
                                 'location': 'Remote Electronic Notarization',
                                 'sc_synced': False, 'sc_registry_id': None,
                                 'created_at': _dt.now(_tz.utc).isoformat(),
@@ -4582,6 +4825,8 @@ def _populate_registry_bg(apt_id: str, enp_id: str) -> None:
 
     except Exception as _bg_err:
         print(f'[Registry] populate error for apt {apt_id}: {_bg_err}', flush=True)
+    finally:
+        _registry_in_progress.discard(apt_id)
 
 
 # ─── POST /api/registry/populate/{apt_id} ─────────────────────────────────────
@@ -4702,6 +4947,11 @@ async def registry_list_acts(
     for _act in page_acts:
         _a = dict(_act)
         _a["enp_email"] = _enp_email
+        # Normalize field name aliases for UI compatibility
+        if not _a.get("dc_project_uuid") and _a.get("doconchain_project_uuid"):
+            _a["dc_project_uuid"] = _a["doconchain_project_uuid"]
+        if not _a.get("dc_reference_no") and _a.get("dc_reference_number"):
+            _a["dc_reference_no"] = _a["dc_reference_number"]
         # Get fee from appointment session_documents
         if not _a.get("fee"):
             try:
@@ -4943,6 +5193,90 @@ async def registry_sync_sc(
 
 
 
+# ─── POST /api/registry/acts/{act_id}/resync-dc ────────────────────────────────
+
+@app.post("/api/registry/acts/{act_id}/resync-dc")
+async def registry_resync_dc(
+    act_id: str,
+    authorization: Optional[str] = Header(None),
+    ql_access: Optional[str] = Cookie(default=None),
+):
+    """ENP-only: Re-trigger Doconchain vault fetch for a specific act.
+    Useful when dc_status is not completed and ENP wants to re-check.
+    Clears the fetched flag so the document endpoint will try again.
+    """
+    user = get_current_user(authorization, ql_access)
+    if not user:
+        raise HTTPException(401, "Unauthorized")
+    if user.get("role") != "attorney":
+        raise HTTPException(403, "ENP access required")
+
+    enp_id = user["id"]
+    act = _db.get_act_by_id(act_id, enp_id=enp_id)
+    if not act:
+        raise HTTPException(404, "Act not found")
+
+    dc_uuid = act.get("doconchain_project_uuid") or act.get("dc_project_uuid") or ""
+    if not dc_uuid:
+        return {"success": False, "message": "No Doconchain project UUID on this act"}
+
+    # Try to fetch fresh data from Doconchain projects endpoint
+    import requests as _rq_resync
+    enp_email = (user.get("email") or "").lower().strip()
+    updated = False
+
+    try:
+        tok = _get_dc_token(email=enp_email)
+        proj_url = f"{_DC_BASE}/api/v2/projects/{dc_uuid}?user_type=ENTERPRISE_API"
+        resp = _rq_resync.get(proj_url, headers={"Authorization": f"Bearer {tok}", "Accept": "application/json"}, timeout=20)
+        if resp.status_code == 401:
+            _dc_token_cache.pop(enp_email, None)
+            tok = _get_dc_token(email=enp_email)
+            resp = _rq_resync.get(proj_url, headers={"Authorization": f"Bearer {tok}", "Accept": "application/json"}, timeout=20)
+        if resp.ok:
+            data = resp.json().get("data") or {}
+            new_status = (data.get("status") or "").lower()
+            ref_no = data.get("reference_number") or ""
+            completed_at = data.get("completed_at")
+            # Update act with fresh DC data
+            act_upd = dict(act)
+            if new_status:
+                act_upd["dc_status"] = new_status
+            if ref_no:
+                act_upd["dc_reference_number"] = ref_no
+                act_upd["dc_reference_no"] = ref_no
+            if completed_at:
+                act_upd["executed_at"] = completed_at
+            # If completed, try to get file URL
+            if new_status == "completed":
+                _priority = ["Document Completed", "Document Certification", "Original With Signature And QR", "Original"]
+                _files_by_type = {f.get("type", ""): f for f in (data.get("files") or []) if f.get("url")}
+                for _ptype in _priority:
+                    if _ptype in _files_by_type:
+                        act_upd["dc_file_url"] = _files_by_type[_ptype]["url"]
+                        act_upd["dc_file_name"] = _files_by_type[_ptype].get("file_name") or act.get("doc_name") or "document.pdf"
+                        break
+            _db.upsert_registry_act(act_upd)
+            updated = True
+            print(f"[ResyncDC] Act {act_id[:8]} updated: dc_status={new_status} ref={ref_no}", flush=True)
+            return {
+                "success": True,
+                "dc_status": new_status or act.get("dc_status"),
+                "dc_reference_no": ref_no or act.get("dc_reference_no"),
+                "message": f"Re-synced from Doconchain. Status: {new_status or 'unknown'}",
+                "updated": updated,
+            }
+        else:
+            return {
+                "success": False,
+                "message": f"Doconchain returned HTTP {resp.status_code}. Document may not be ready yet.",
+                "dc_status": act.get("dc_status"),
+            }
+    except Exception as _e:
+        print(f"[ResyncDC] Error for act {act_id[:8]}: {_e}", flush=True)
+        return {"success": False, "message": str(_e)}
+
+
 # ─── GET /api/pdf-proxy ───────────────────────────────────────────────────────
 @app.get("/api/pdf-proxy")
 async def pdf_proxy(
@@ -4981,6 +5315,193 @@ async def pdf_proxy(
         )
     except Exception as e:
         raise HTTPException(502, f"Could not fetch PDF: {str(e)[:200]}")
+
+# ─── GET /__vault_download/{vault_uuid} ────────────────────────────────────────
+@app.get("/__vault_download/{vault_uuid}")
+async def vault_download_proxy(
+    vault_uuid: str,
+    _tok: str = "",
+    authorization: Optional[str] = Header(None),
+    ql_access: Optional[str] = Cookie(default=None),
+):
+    """
+    Proxy endpoint: streams the completed notarized PDF directly from 
+    Doconchain vault. Uses GET /vault/items/{vault_uuid}/download.
+    The _tok param is a short-lived DC token; if expired, we refresh.
+    """
+    from fastapi.responses import StreamingResponse
+    import urllib.request as _uvdl, urllib.error as _uvdl_err
+    import io as _io_vd
+
+    user = get_current_user(authorization, ql_access)
+    if not user:
+        raise HTTPException(401, "Unauthorized")
+
+    # Use provided token or get a fresh one
+    tok = _tok or ""
+    enp_email = (user.get("email") or "").lower()
+
+    def _try_download(token):
+        _url = f"{_DC_BASE}/vault/items/{vault_uuid}/download?user_type=ENTERPRISE_API"
+        _req = _uvdl.Request(_url, headers={"Authorization": f"Bearer {token}"}, method="GET")
+        with _uvdl.urlopen(_req, timeout=30) as _r:
+            _ct = _r.headers.get("Content-Type", "application/pdf")
+            _data = _r.read()
+        return _ct, _data
+
+    try:
+        ct, data = _try_download(tok)
+    except (_uvdl_err.HTTPError, Exception):
+        # Token expired or invalid — refresh
+        try:
+            tok = _get_dc_token(email=enp_email) or _get_dc_token(email=_DC_EMAIL)
+            ct, data = _try_download(tok)
+        except Exception as _e:
+            raise HTTPException(502, f"Could not download from vault: {str(_e)[:200]}")
+
+    if not data or data[:4] != b"%PDF":
+        raise HTTPException(502, "Vault response is not a valid PDF")
+
+    return StreamingResponse(
+        _io_vd.BytesIO(data),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'inline; filename="notarized-document.pdf"',
+            "Content-Length": str(len(data)),
+            "Cache-Control": "private, max-age=300",
+        }
+    )
+
+
+
+
+# ─── GET /api/registry/acts/{act_id}/proxy-pdf ────────────────────────────────
+
+@app.get("/api/registry/acts/{act_id}/proxy-pdf")
+async def proxy_registry_pdf(
+    act_id: str,
+    authorization: Optional[str] = Header(None),
+    ql_access: Optional[str] = Cookie(default=None),
+):
+    """Proxy the notarized PDF from DoconChain through our backend.
+    Avoids CORS issues — browser only talks to our domain."""
+    import requests as _rq_proxy
+    from fastapi.responses import StreamingResponse, Response as FastAPIResponse
+
+    user = get_current_user(authorization, ql_access)
+    if not user:
+        raise HTTPException(401, "Unauthorized")
+
+    enp_id = user["id"]
+    act = _db.get_act_by_id(act_id, enp_id=enp_id)
+    if not act:
+        raise HTTPException(404, "Act not found")
+
+    dc_uuid = act.get("doconchain_project_uuid") or ""
+    if not dc_uuid:
+        raise HTTPException(404, "No DoconChain project linked to this act")
+
+    enp_email = (user.get("email") or "").lower().strip()
+
+    # ── DIAGNOSTIC: Point 5 — Check DC project completion BEFORE fetching PDF ────
+    import requests as _rq_gate
+    try:
+        _gate_tok = _get_dc_token(email=enp_email)
+        _gate_resp = _rq_gate.get(
+            f"{_DC_BASE}/api/v2/projects/{dc_uuid}?user_type=ENTERPRISE_API",
+            headers={"Authorization": f"Bearer {_gate_tok}", "Accept": "application/json"},
+            timeout=15,
+        )
+        if _gate_resp.status_code == 200:
+            _gate_data = _gate_resp.json().get("data") or {}
+            _gate_status = (_gate_data.get("status") or "").lower()
+            _gate_completed = _gate_data.get("completed_at") or _gate_data.get("completedAt")
+            _gate_signers = _gate_data.get("signers", [])
+            print(
+                f"[ProxyPDF] Completion gate: uuid={dc_uuid[:12]} status={_gate_status} "
+                f"completed_at={_gate_completed} signers={len(_gate_signers)} token_email={enp_email}",
+                flush=True
+            )
+            for _gs in _gate_signers:
+                print(
+                    f"[ProxyPDF]   signer={(_gs.get('email') or '').lower()} "
+                    f"status={(_gs.get('status') or '').upper()}",
+                    flush=True
+                )
+            # Point 5: warn if not completed — still serve file for registry (already in vault)
+            if _gate_status not in ("completed", "complete"):
+                print(f"[ProxyPDF] WARN: project {dc_uuid[:12]} status={_gate_status} — PDF may not be sealed", flush=True)
+        else:
+            print(f"[ProxyPDF] Completion gate check HTTP {_gate_resp.status_code} for {dc_uuid[:12]}", flush=True)
+    except Exception as _gate_err:
+        print(f"[ProxyPDF] Completion gate error: {_gate_err}", flush=True)
+
+    # Try to get a direct file URL from DC
+    file_url = act.get("dc_file_url") or ""
+    file_name = act.get("dc_file_name") or act.get("doc_name") or "notarized-document.pdf"
+
+    # If no stored URL, fetch fresh from DC projects endpoint
+    if not file_url:
+        priority = ['Document Completed', 'Document Certification', 'Original With Signature And QR', 'Original']
+        for _email in [enp_email, _DC_EMAIL]:
+            try:
+                tok = _get_dc_token(email=_email)
+                _r = _rq_proxy.get(
+                    f"{_DC_BASE}/api/v2/projects/{dc_uuid}?user_type=ENTERPRISE_API",
+                    headers={"Authorization": f"Bearer {tok}", "Accept": "application/json"},
+                    timeout=15,
+                )
+                if _r.status_code == 200:
+                    _data = _r.json().get("data") or {}
+                    _files_by_type = {}
+                    for _f in (_data.get("files") or []):
+                        _ft = _f.get("type") or ""
+                        _fu = _f.get("url") or ""
+                        _fn = _f.get("file_name") or file_name
+                        if _fu and _ft:
+                            _files_by_type[_ft] = (_fu, _fn)
+                    for _pt in priority:
+                        if _pt in _files_by_type:
+                            file_url, file_name = _files_by_type[_pt]
+                            break
+                if file_url:
+                    break
+            except Exception:
+                continue
+
+    if not file_url:
+        raise HTTPException(404, "Document not available — may still be processing on DoconChain")
+
+    # Proxy the file through our backend
+    try:
+        tok = _get_dc_token(email=enp_email)
+        _pdf_resp = _rq_proxy.get(file_url, headers={"Authorization": f"Bearer {tok}"}, timeout=30, stream=True)
+        if _pdf_resp.status_code != 200:
+            # Try without auth (some DC URLs are pre-signed)
+            _pdf_resp = _rq_proxy.get(file_url, timeout=30, stream=True)
+        if _pdf_resp.status_code != 200:
+            raise HTTPException(502, f"DoconChain returned {_pdf_resp.status_code}")
+
+        content_type = _pdf_resp.headers.get("content-type", "application/pdf")
+        safe_name = file_name.replace('"', "'")
+
+        def _stream():
+            for chunk in _pdf_resp.iter_content(chunk_size=8192):
+                if chunk:
+                    yield chunk
+
+        return StreamingResponse(
+            _stream(),
+            media_type=content_type,
+            headers={
+                "Content-Disposition": f'inline; filename="{safe_name}"',
+                "Cache-Control": "private, max-age=300",
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(502, f"Could not fetch document: {str(e)[:200]}")
 
 # ─── GET /api/registry/acts/{act_id}/document ─────────────────────────────────────────────
 
@@ -5034,29 +5555,114 @@ async def registry_get_document(
     if dc_uuid:
         def _fetch_dc_vault():
             enp_email = (user.get("email") or "").lower().strip()
-            # Try vault endpoint FIRST — returns completed signed document with file_url
-            # /vault/items/{uuid} is for COMPLETED projects with signed PDFs
-            # /api/v2/projects/{uuid} is for in-progress projects
+
+            # STEP 1: Try stored dc_file_url first (fastest, no DC call needed)
+            _stored_url = act.get("dc_file_url") or ""
+            if _stored_url and _stored_url.startswith("http"):
+                try:
+                    import requests as _rq_head
+                    _hr = _rq_head.head(_stored_url, timeout=5)
+                    if _hr.status_code == 200:
+                        print(f"[DC] Using stored dc_file_url for {dc_uuid[:12]}", flush=True)
+                        return {
+                            "_source": "stored_url",
+                            "url": _stored_url,
+                            "file_name": act.get("dc_file_name") or "notarized-document.pdf",
+                            "status": "completed",
+                        }
+                except Exception:
+                    print(f"[DC] Stored URL expired/unavailable for {dc_uuid[:12]}, fetching fresh", flush=True)
+
+            # STEP 2: Try DoconChain VAULT first — this has the sealed/stamped notarized PDF
+            # (vault only contains completed documents with notarial seal applied)
+            import requests as _rq_doc
+            _vault_priority = ['Document Completed', 'Document Certification', 'Original With Signature And QR', 'Original']
+            for _vemail in [enp_email, _DC_EMAIL]:
+                if not _vemail: continue
+                try:
+                    _vtok = _get_dc_token(email=_vemail)
+                    _vr = _rq_doc.get(
+                        f"{_DC_BASE}/vault/items/{dc_uuid}?user_type=ENTERPRISE_API",
+                        headers={"Authorization": f"Bearer {_vtok}", "Accept": "application/json"},
+                        timeout=20,
+                    )
+                    if _vr.status_code == 200:
+                        _vdata = _vr.json().get("data") or {}
+                        if isinstance(_vdata, list): _vdata = _vdata[0] if _vdata else {}
+                        if (_vdata.get("status") or "").lower() == "completed":
+                            # DC vault spec: data.url = top-level file URL (primary notarized PDF)
+                            # data.files[] = [{file_id, file_name, file_url}] — no "type" field
+                            _vault_url = _vdata.get("url") or ""
+                            _vault_fn = _vdata.get("file_name") or act.get("doc_name") or "notarized-document.pdf"
+                            # Use top-level url first (the sealed notarized doc)
+                            if not _vault_url:
+                                # Fallback: first file in files[]
+                                for _vf in (_vdata.get("files") or []):
+                                    _vfu = _vf.get("file_url") or _vf.get("url") or ""
+                                    _vfn = _vf.get("file_name") or _vault_fn
+                                    if _vfu:
+                                        _vault_url = _vfu
+                                        _vault_fn = _vfn
+                                        break
+                            if _vault_url:
+                                print(f"[DC] Vault sealed PDF for {dc_uuid[:12]}: {_vault_fn}", flush=True)
+                                return {"_source": "vault", "url": _vault_url, "file_name": _vault_fn, "status": "completed"}
+                except Exception as _ve:
+                    print(f"[DC] Vault fetch failed for {dc_uuid[:12]}: {_ve}", flush=True)
+
+            # STEP 3: Fall back to projects endpoint (in-progress or vault not indexed yet)
+            _priority = ['Document Completed', 'Document Certification', 'Original With Signature And QR', 'Original']
             for _email in [enp_email, _DC_EMAIL]:
                 if not _email:
                     continue
                 try:
                     tok = _get_dc_token(email=_email)
-                    # Primary: vault endpoint (completed signed document)
-                    vault_url = f"{_DC_BASE}/vault/items/{dc_uuid}?user_type=ENTERPRISE_API"
-                    req = _ureq_doc.Request(vault_url, headers={
-                        "Authorization": f"Bearer {tok}",
-                        "Accept": "application/json",
-                    })
-                    with _ureq_doc.urlopen(req, timeout=20) as r:
-                        resp = _json_doc.loads(r.read().decode())
+                    proj_url = f"{_DC_BASE}/api/v2/projects/{dc_uuid}?user_type=ENTERPRISE_API"
+                    _resp_r = _rq_doc.get(proj_url, headers={"Authorization": f"Bearer {tok}", "Accept": "application/json"}, timeout=20)
+                    if _resp_r.status_code == 401:
+                        _dc_token_cache.pop(_email, None)
+                        tok = _get_dc_token(email=_email)
+                        _resp_r = _rq_doc.get(proj_url, headers={"Authorization": f"Bearer {tok}", "Accept": "application/json"}, timeout=20)
+                    _resp_r.raise_for_status()
+                    resp = _resp_r.json()
                     data = resp.get("data") or resp
-                    if data and (data.get("uuid") or data.get("status")):
-                        data["_source"] = "vault"
-                        print(f"[DC] vault/items/{dc_uuid[:12]} status={data.get('status')} url={'yes' if data.get('url') else 'no'}", flush=True)
+                    if data and data.get("uuid"):
+                        # Find best file in priority order
+                        _files_by_type = {}
+                        for _f in (data.get("files") or []):
+                            _ft = _f.get("type") or ""
+                            _fu = _f.get("url") or ""
+                            _fn = _f.get("file_name") or act.get("doc_name") or "document"
+                            if _fu and _ft:
+                                _files_by_type[_ft] = (_fu, _fn)
+                        for _ptype in _priority:
+                            if _ptype in _files_by_type:
+                                _fu, _fn = _files_by_type[_ptype]
+                                print(f"[DC] Fresh URL fetched for {dc_uuid[:12]}: {_ptype}", flush=True)
+                                # Update stored URL async
+                                try:
+                                    import threading as _t_upd
+                                    _act_upd = dict(act)
+                                    _act_upd["dc_file_url"] = _fu
+                                    _act_upd["dc_file_name"] = _fn
+                                    def _upd():
+                                        import database as _dbu
+                                        _dbu.upsert_registry_act(_act_upd)
+                                    _t_upd.Thread(target=_upd, daemon=True).start()
+                                except Exception:
+                                    pass
+                                return {
+                                    "_source": "projects_fresh",
+                                    "url": _fu,
+                                    "file_name": _fn,
+                                    "status": "completed",
+                                }
+                        data["_source"] = "projects"
                         return data
                 except Exception as _e:
-                    print(f"[DC] vault/items/{dc_uuid[:12]} with {_email} failed: {_e}", flush=True)
+                    print(f"[DC] /api/v2/projects/{dc_uuid[:12]} with {_email} failed: {_e}", flush=True)
+                    continue
+            return None
 
             # Fallback: projects endpoint (in-progress, may have partial files)
             for _email in [enp_email, _DC_EMAIL]:
@@ -5091,7 +5697,19 @@ async def registry_get_document(
                 _source = vault_item.get("_source", "projects")
                 dc_view_url = None
 
-                if _source == "vault":
+                if _source in ("stored_url", "projects_fresh"):
+                    # Direct URL available — return it for proxy streaming
+                    _file_url = vault_item.get("url", "")
+                    _file_name = vault_item.get("file_name") or act.get("doc_name") or "Notarized Document"
+                    if _file_url:
+                        dc_files.append({
+                            "fileName": _file_name,
+                            "downloadUrl": _file_url,
+                            "source": _source,
+                        })
+                    dc_view_url = f"{_DC_APP_URL}/sign/{dc_uuid}"
+
+                elif _source == "vault":
                     # Vault response: top-level url = signed completed PDF
                     # files[] = [{file_id, file_name, file_url}]
                     _doc_name = vault_item.get("file_name") or vault_item.get("name") or act.get("doc_name") or "Notarized Document"
@@ -5106,23 +5724,47 @@ async def registry_get_document(
                             dc_files.append({"fileName": _fname, "downloadUrl": _furl, "source": "vault-file"})
                 else:
                     # Projects response: files[] with type field
-                    _priority = ['Document Completed', 'Original With Signature And QR', 'Original']
+                    # Priority: signed+QR version first, then completed, then original
+                    _priority = ['Document Completed', 'Document Certification', 'Original With Signature And QR', 'Original']
                     _files_by_type = {}
                     for _f in (vault_item.get("files") or []):
                         _ftype = _f.get("type") or ""
                         _furl  = _f.get("url") or ""
                         _fname = _f.get("file_name") or vault_item.get("file_name") or act.get("doc_name") or "Document"
-                        if _furl and _ftype:
+                        if _furl and _ftype and "meta" not in _ftype.lower() and "qr" not in _ftype.lower().replace("with", ""):
                             _files_by_type[_ftype] = {"fileName": _fname, "downloadUrl": _furl}
+                    # Pick best file in priority order
                     for _ptype in _priority:
                         if _ptype in _files_by_type:
                             dc_files.append(_files_by_type[_ptype])
                             break
+                    # Fallback: any file with a URL that looks like a PDF
+                    if not dc_files:
+                        for _f in (vault_item.get("files") or []):
+                            _furl = _f.get("url") or ""
+                            _fname = _f.get("file_name") or act.get("doc_name") or "Document"
+                            if _furl and ".pdf" in _fname.lower():
+                                dc_files.append({"fileName": _fname, "downloadUrl": _furl})
+                                break
                     if not dc_files and vault_item.get("url"):
                         dc_files.append({
                             "fileName": vault_item.get("file_name") or act.get("doc_name") or "Document",
                             "downloadUrl": vault_item["url"]
                         })
+                    # Update stored dc_file_url with fresh URL (avoids stale presigned URLs)
+                    if dc_files:
+                        try:
+                            import threading as _t_upd
+                            _act_upd = dict(act)
+                            _act_upd["dc_file_url"] = dc_files[0]["downloadUrl"]
+                            _act_upd["dc_file_name"] = dc_files[0]["fileName"]
+                            _act_upd["doconchain_project_uuid"] = dc_uuid
+                            def _upd_act():
+                                import database as _dbu
+                                _dbu.upsert_registry_act(_act_upd)
+                            _t_upd.Thread(target=_upd_act, daemon=True).start()
+                        except Exception:
+                            pass
         except Exception as _dc_err:
             print(f"[DC] vault processing failed (non-fatal): {_dc_err}", flush=True)
 
@@ -6003,8 +6645,7 @@ async def quicksign_create_project(
     user = get_current_user(authorization, ql_access)
     if not user:
         raise HTTPException(401, "Unauthorized")
-    if user.get("role") != "attorney":
-        raise HTTPException(403, "ENP only")
+    # All authenticated users can use QuickSign
 
     form = await request.form()
     doc_name = str(form.get("doc_name", "Document")).strip() or "Document"
@@ -6024,6 +6665,7 @@ async def quicksign_create_project(
         raise HTTPException(400, "Empty file")
 
     enp_user = get_user(user["id"]) or user
+    _is_enp_qs = user.get("role") == "attorney"
     _qs_apt = {
         "client_email": "", "client_name": "", "session_participants": [],
         "mode_of_notarization": "REN", "notarization_type": notarization_type,
@@ -6059,7 +6701,7 @@ async def quicksign_create_project(
         if not dc_token:
             raise ValueError(f"No token: {tok}")
 
-        stamp = _build_dc_stamp(enp_user, _qs_apt)
+        stamp = _build_dc_stamp(enp_user, _qs_apt) if _is_enp_qs else {}
         proj = _mp_qs(
             f'{_DC_BASE}/api/v2/projects?user_type=ENTERPRISE_API',
             _build_create_fields(stamp, _qs_apt),
@@ -6078,17 +6720,14 @@ async def quicksign_create_project(
 
     sign_link = f"https://stg-app.doconchain.com/sign/{project_uuid}"
 
-    # Pre-add ENP as DC signer sequence=2 (signs last, after client)
+    # Pre-add ENP as DC signer sequence=2 (signs last, after client) — ENP only
     _qs_enp_first = enp_user.get("first_name", "") or "ENP"
     _qs_enp_last  = enp_user.get("last_name", "") or ""
     _qs_enp_email = enp_user.get("email", "")
-    try:
-        if _qs_enp_email:
-            _add_dc_signer(project_uuid, _qs_enp_email, _qs_enp_first, _qs_enp_last,
-                           "Signer", dc_token, sequence=2)
-            print(f"[QuickSign] ENP pre-added as signer seq=2: {_qs_enp_email}", flush=True)
-    except Exception as _qs_enp_err:
-        print(f"[QuickSign] ENP pre-add failed (non-fatal): {_qs_enp_err}", flush=True)
+    # ENP is the project creator/owner — they can plot signature fields without being added as a Signer.
+    # The ENP will be added as a Signer AFTER plotting via the add-signer endpoint (sequence=2).
+    # Adding ENP as Signer BEFORE plotting causes DC to open the signing UI instead of field editor.
+    print(f"[QuickSign] Project created. ENP will be added as signer AFTER plotting.", flush=True)
 
     return {
         "project_uuid": project_uuid,
@@ -6110,8 +6749,7 @@ async def quicksign_add_signer(
     user = get_current_user(authorization, ql_access)
     if not user:
         raise HTTPException(401, "Unauthorized")
-    if user.get("role") != "attorney":
-        raise HTTPException(403, "ENP only")
+    # All authenticated users can use QuickSign
 
     project_uuid = req.project_uuid.strip()
     if not project_uuid:
@@ -6190,16 +6828,16 @@ async def quicksign_plot_link(
     user = get_current_user(authorization, ql_access)
     if not user:
         raise HTTPException(401, "Unauthorized")
-    if user.get("role") != "attorney":
-        raise HTTPException(403, "ENP only")
+    # All authenticated users can use QuickSign
     if not project_uuid or not project_uuid.strip():
         raise HTTPException(400, "project_uuid required")
 
     import urllib.request as _ureq_qs3, urllib.error as _uerr_qs3, json as _json_qs3
 
-    enp_email = (user.get("email") or "").lower().strip()
+    _is_enp_plot = user.get("role") == "attorney"
+    enp_email = (user.get("email") or "").lower().strip() if _is_enp_plot else _DC_EMAIL
     if not enp_email:
-        raise HTTPException(400, "ENP email not found")
+        raise HTTPException(400, "User email not found")
 
     _dc_token_cache.pop(enp_email, None)
     _dc_token_cache.pop(_DC_EMAIL, None)
@@ -6288,12 +6926,12 @@ async def quicksign_create_appointment(
     user = get_current_user(authorization, ql_access)
     if not user:
         raise HTTPException(401, "Unauthorized")
-    if user.get("role") != "attorney":
-        raise HTTPException(403, "ENP only")
+    # All authenticated users can use QuickSign
 
+    _is_enp_apt = user.get("role") == "attorney"
     enp_user = user  # get_current_user already returns full user object
     enp_name = f"{user.get('first_name', '')} {user.get('last_name', '')}".strip() or user.get('name', 'ENP')
-    enp_email = user.get("email", "")
+    enp_email = user.get("email", "") if _is_enp_apt else ""
 
     client_name = req.client_name.strip() or req.client_email.split("@")[0]
 
