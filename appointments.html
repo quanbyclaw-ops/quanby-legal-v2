@@ -258,11 +258,13 @@ function populateNav() {
   }
 
   const navLinks = document.getElementById('nav-links');
+  const _msgLink = '<a href="/messages"><i class="hgi-stroke hgi-bubble-chat" style="font-size:.9rem;vertical-align:middle;margin-right:.3rem;"></i>Messages<span id="nav-msg-badge" style="display:none;margin-left:.35rem;background:#a78bfa;color:#0D0F1A;font-size:.65rem;font-weight:700;padding:.05rem .4rem;border-radius:99px;">0</span></a>';
   if (_user.role === 'client') {
     navLinks.innerHTML = `
       <a href="/dashboard">Dashboard</a>
       <a href="/browse">Find a Notary</a>
       <a href="/appointments" class="active">My Appointments</a>
+      ${_msgLink}
       <a href="/profile"><i class="hgi-stroke hgi-user-circle" style="font-size:.9rem;vertical-align:middle;margin-right:.3rem;"></i>Profile</a>
     `;
   } else {
@@ -270,9 +272,12 @@ function populateNav() {
       <a href="/dashboard">Dashboard</a>
       <a href="/appointments" class="active">Appointments</a>
       <a href="/registry"><i class="hgi-stroke hgi-book-open-01" style="font-size:.9rem;vertical-align:middle;margin-right:.3rem;"></i>Registry</a>
+      <a href="/quicksign"><i class="hgi-stroke hgi-lightning-02" style="font-size:.9rem;vertical-align:middle;margin-right:.3rem;"></i>QuickSign</a>
+      ${_msgLink}
       <a href="/profile"><i class="hgi-stroke hgi-user-circle" style="font-size:.9rem;vertical-align:middle;margin-right:.3rem;"></i>Profile</a>
     `;
   }
+  // Realtime unread badge handled by /assets/nav-msg-badge.js
 }
 
 async function loadAppointments() {
@@ -713,5 +718,6 @@ async function endSessionFromApts(aptId, btn) {
   }
 }
 </script>
+<script src="/assets/nav-msg-badge.js" defer></script>
 </body>
 </html>

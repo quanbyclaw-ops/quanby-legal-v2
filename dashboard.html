@@ -587,6 +587,7 @@
   .doc-row {
     display: flex; align-items: center; gap: 0.75rem;
     padding: 0.5rem 0; border-bottom: 1px solid rgba(255,255,255,0.04);
+    position: relative;
   }
   .doc-row:last-child { border-bottom: none; }
   .doc-ico {
@@ -612,6 +613,22 @@
     flex-shrink: 0; transition: opacity 0.12s;
   }
   .doc-dc-link:hover { opacity: 0.72; }
+  .doc-meatball-btn {
+    background: none; border: none; cursor: pointer; padding: 4px 6px;
+    color: var(--muted); font-size: 1.1rem; line-height: 1; border-radius: 4px;
+    flex-shrink: 0;
+  }
+  .doc-meatball-btn:hover { background: rgba(255,255,255,0.08); color: var(--text); }
+  .doc-meatball-menu {
+    position: absolute; right: 0; top: 100%; z-index: 999;
+    background: var(--card-bg, #1a1d2e); border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px; padding: 4px 0; min-width: 210px; box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  }
+  .doc-meatball-item {
+    display: flex; align-items: center; gap: 8px; padding: 8px 14px;
+    font-size: 0.82rem; color: var(--text, #e0e0e0); cursor: pointer; white-space: nowrap;
+  }
+  .doc-meatball-item:hover { background: rgba(255,255,255,0.06); }
   .past-appts-empty {
     padding: 2.5rem 1.5rem; text-align: center;
     color: var(--muted); font-size: 0.85rem;
@@ -1019,6 +1036,7 @@ async function loadDashboard() {
           <a href="/dashboard" class="active">Dashboard</a>
           <a href="/browse">Find a Notary</a>
           <a href="/appointments">My Appointments</a>
+          <a href="/messages" id="nav-msg-link"><i class="hgi-stroke hgi-bubble-chat" style="font-size:.9rem;vertical-align:middle;margin-right:.25rem;"></i>Messages<span id="nav-msg-badge" style="display:none;margin-left:.35rem;background:#a78bfa;color:#0D0F1A;font-size:.65rem;font-weight:700;padding:.05rem .4rem;border-radius:99px;">0</span></a>
           <a href="/profile"><i class="hgi-stroke hgi-user-circle" style="font-size:.9rem;vertical-align:middle;margin-right:.25rem;"></i>Profile</a>
         `;
       } else if (user.role === 'attorney') {
@@ -1026,9 +1044,12 @@ async function loadDashboard() {
           <a href="/dashboard" class="active">Dashboard</a>
           <a href="/appointments">Appointments</a>
           <a href="/registry"><i class="hgi-stroke hgi-book-open-01" style="font-size:.9rem;vertical-align:middle;margin-right:.25rem;"></i>Registry</a>
+          <a href="/quicksign"><i class="hgi-stroke hgi-lightning-02" style="font-size:.9rem;vertical-align:middle;margin-right:.25rem;"></i>QuickSign</a>
+          <a href="/messages" id="nav-msg-link"><i class="hgi-stroke hgi-bubble-chat" style="font-size:.9rem;vertical-align:middle;margin-right:.25rem;"></i>Messages<span id="nav-msg-badge" style="display:none;margin-left:.35rem;background:#a78bfa;color:#0D0F1A;font-size:.65rem;font-weight:700;padding:.05rem .4rem;border-radius:99px;">0</span></a>
           <a href="/profile"><i class="hgi-stroke hgi-user-circle" style="font-size:.9rem;vertical-align:middle;margin-right:.25rem;"></i>Profile</a>
         `;
       }
+      // Realtime unread badge handled by /assets/nav-msg-badge.js
     }
 
     // ── Route to correct dashboard ──
@@ -1155,7 +1176,7 @@ function populateClientDashboard(user, name, initials, roleLabel) {
         const docs = Array.isArray(a.session_documents) ? a.session_documents : [];
         const docsHtml = docs.length === 0
           ? '<div style="font-size:0.78rem;color:var(--muted);padding:0.375rem 0;">No documents recorded for this session.</div>'
-          : docs.map(doc => {
+          : docs.map((doc, docIdx) => {
               const dcState = (doc.dc_workflow_state || '').toLowerCase();
               const signers = Array.isArray(doc.signers) ? doc.signers : [];
               const allSigned = signers.length > 0 && signers.every(s => s.signed || s.status === 'signed' || s.status === 'completed');
@@ -1169,12 +1190,25 @@ function populateClientDashboard(user, name, initials, roleLabel) {
                 ? `<a href="${doc.sign_link}" target="_blank" rel="noopener" class="doc-dc-link"><i class="hgi-stroke hgi-link-01" style="font-size:.72rem;"></i>DoconChain</a>`
                 : '';
               const docName = (doc.name || 'Document').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+              const docProjUuid = doc.doconchain_project_uuid || doc.project_uuid || '';
+              const meatballId = 'mm-' + (docProjUuid || idx + '-' + docIdx);
+              const meatball = isSigned && docProjUuid ? `
+                <button class="doc-meatball-btn" onclick="event.stopPropagation();toggleMeatball('${meatballId}')" title="More options">&#8942;</button>
+                <div class="doc-meatball-menu" id="${meatballId}" style="display:none;">
+                  <div class="doc-meatball-item" onclick="fetchVaultDoc('${docProjUuid}','view')">
+                    <i class="hgi-stroke hgi-eye" style="font-size:.9rem;flex-shrink:0;"></i>View Notarized Document
+                  </div>
+                  <div class="doc-meatball-item" onclick="fetchVaultDoc('${docProjUuid}','download')">
+                    <i class="hgi-stroke hgi-download-04" style="font-size:.9rem;flex-shrink:0;"></i>Download Notarized Document
+                  </div>
+                </div>` : '';
               return `
                 <div class="doc-row">
                   <div class="doc-ico"><i class="hgi-stroke hgi-document-01"></i></div>
                   <span class="doc-name" title="${docName}">${docName}</span>
                   <span class="${chipClass}">${chipIcon}${chipLabel}</span>
                   ${dcLink}
+                  ${meatball}
                 </div>`;
             }).join('');
 
@@ -1485,6 +1519,40 @@ function toggleAppt(cardId) {
   card.classList.toggle('pa-open');
 }
 
+function toggleMeatball(menuId) {
+  const menu = document.getElementById(menuId);
+  if (!menu) return;
+  const isOpen = menu.style.display !== 'none';
+  // Close all open meatball menus first
+  document.querySelectorAll('.doc-meatball-menu').forEach(m => { m.style.display = 'none'; });
+  if (!isOpen) menu.style.display = 'block';
+}
+
+// Close meatball menus on outside click
+document.addEventListener('click', function() {
+  document.querySelectorAll('.doc-meatball-menu').forEach(m => { m.style.display = 'none'; });
+});
+
+async function fetchVaultDoc(projectUuid, action) {
+  try {
+    const res = await fetch(`/api/vault-doc/${projectUuid}`, { credentials: 'include' });
+    if (!res.ok) { alert('Document not available yet.'); return; }
+    const data = await res.json();
+    if (action === 'view') {
+      window.open(data.view_url, '_blank');
+    } else if (action === 'download') {
+      const a = document.createElement('a');
+      a.href = data.download_url;
+      a.download = data.file_name || 'notarized-document.pdf';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+  } catch (e) {
+    alert('Failed to fetch document. Please try again.');
+  }
+}
+
 loadDashboard();
 </script>
 
@@ -1611,5 +1679,6 @@ async function submitAdminLogin() {
 }
 </script>
 
+<script src="/assets/nav-msg-badge.js" defer></script>
 </body>
 </html>

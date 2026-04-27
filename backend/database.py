@@ -131,6 +131,34 @@ def init_db() -> None:
             data        TEXT NOT NULL DEFAULT '{}'
         );
         CREATE INDEX IF NOT EXISTS idx_suborgs_owner ON sub_orgs(owner_id);
+
+        -- Session chat messages
+        CREATE TABLE IF NOT EXISTS messages (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id  TEXT NOT NULL,
+            sender_id   TEXT NOT NULL,
+            sender_name TEXT NOT NULL,
+            sender_role TEXT NOT NULL DEFAULT 'client',
+            content     TEXT NOT NULL,
+            created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+            read_by     TEXT DEFAULT '[]'
+        );
+        CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
+
+        -- Direct messages (Messenger-style person-to-person)
+        -- conv_key = sorted(user_a_id, user_b_id) joined by ':' (stable conversation id)
+        CREATE TABLE IF NOT EXISTS dm_messages (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            conv_key    TEXT NOT NULL,
+            sender_id   TEXT NOT NULL,
+            recipient_id TEXT NOT NULL,
+            content     TEXT NOT NULL,
+            created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+            read_at     DATETIME DEFAULT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_dm_conv   ON dm_messages(conv_key, created_at);
+        CREATE INDEX IF NOT EXISTS idx_dm_sender ON dm_messages(sender_id);
+        CREATE INDEX IF NOT EXISTS idx_dm_recip  ON dm_messages(recipient_id);
     """)
     conn.commit()
 

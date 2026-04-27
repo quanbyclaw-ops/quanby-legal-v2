@@ -469,11 +469,13 @@
   function populateNav(user) {
     const links = document.getElementById('prof-nav-links');
     const profileLink = '<a href="/profile" class="active"><i class="hgi-stroke hgi-user-circle" style="font-size:.9rem;vertical-align:middle;margin-right:.25rem;"></i>Profile</a>';
+    const msgLink = '<a href="/messages"><i class="hgi-stroke hgi-bubble-chat" style="font-size:.9rem;vertical-align:middle;margin-right:.25rem;"></i>Messages<span id="nav-msg-badge" style="display:none;margin-left:.35rem;background:#a78bfa;color:#0D0F1A;font-size:.65rem;font-weight:700;padding:.05rem .4rem;border-radius:99px;">0</span></a>';
     if (user.role === 'client') {
       links.innerHTML = `
         <a href="/dashboard">Dashboard</a>
         <a href="/browse">Find a Notary</a>
         <a href="/appointments">My Appointments</a>
+        ${msgLink}
         ${profileLink}
       `;
     } else if (user.role === 'attorney') {
@@ -481,11 +483,14 @@
         <a href="/dashboard">Dashboard</a>
         <a href="/appointments">Appointments</a>
         <a href="/registry"><i class="hgi-stroke hgi-book-open-01" style="font-size:.9rem;vertical-align:middle;margin-right:.25rem;"></i>Registry</a>
+        <a href="/quicksign"><i class="hgi-stroke hgi-lightning-02" style="font-size:.9rem;vertical-align:middle;margin-right:.25rem;"></i>QuickSign</a>
+        ${msgLink}
         ${profileLink}
       `;
     } else {
-      links.innerHTML = `<a href="/dashboard">Dashboard</a>${profileLink}`;
+      links.innerHTML = `<a href="/dashboard">Dashboard</a>${msgLink}${profileLink}`;
     }
+    // Realtime unread badge handled by /assets/nav-msg-badge.js
   }
 
   function populateForm(user) {
@@ -670,5 +675,6 @@
 
   init();
 </script>
+<script src="/assets/nav-msg-badge.js" defer></script>
 </body>
 </html>
