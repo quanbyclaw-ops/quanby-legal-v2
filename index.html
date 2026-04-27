@@ -393,14 +393,19 @@
         /* PARTNERS */
         #partners { padding: 2.5rem 0; background: rgba(255,255,255,0.02); border-top: 1px solid rgba(255,255,255,0.06); border-bottom: 1px solid rgba(255,255,255,0.06); overflow: hidden; }
         .partners-track-wrapper { position: relative; overflow: hidden; mask-image: linear-gradient(to right, transparent 0%, black 10%, black 90%, transparent 100%); -webkit-mask-image: linear-gradient(to right, transparent 0%, black 10%, black 90%, transparent 100%); }
-        .partners-track { display: flex; align-items: center; gap: 3.5rem; width: max-content; animation: partnerScroll 22s linear infinite; }
+        .partners-track { display: flex; align-items: center; gap: 4rem; width: max-content; animation: partnerScroll 28s linear infinite; }
         .partners-track:hover, .partners-track-wrapper:hover .partners-track { animation-play-state: paused; }
         @keyframes partnerScroll { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
-        .partner-logo-wrap { display: flex; align-items: center; justify-content: center; opacity: 0.65; transition: opacity 0.2s; flex-shrink: 0; }
+        .partner-logo-wrap { display: flex; align-items: center; justify-content: center; opacity: 0.78; transition: opacity 0.2s, filter 0.2s; flex-shrink: 0; height: 64px; }
         .partner-logo-wrap:hover { opacity: 1; }
-        .partner-logo { height: 48px; width: auto; max-width: 150px; object-fit: contain; }
-        .partner-logo-sq { height: 52px; max-width: 52px; }
-        .partner-logo-wide { height: 28px; max-width: 180px; }
+        .partner-logo { width: auto; object-fit: contain; max-height: 100%; display: block; }
+        /* Per-logo sizing tuned to actual aspect ratios */
+        .partner-logo.sc            { height: 60px; }   /* 1024x1024 square seal */
+        .partner-logo.doc           { height: 44px; filter: brightness(1.05); }   /* 1927x624 wordmark */
+        .partner-logo.hyperledger   { height: 38px; background: rgba(255,255,255,0.92); border-radius: 6px; padding: 6px 10px; }
+        .partner-logo.dict          { height: 56px; }   /* 3193x1480 */
+        .partner-logo.pnpki         { height: 56px; border-radius: 50%; }   /* 800x533 */
+        .partner-logo.linux         { height: 28px; background: rgba(255,255,255,0.92); border-radius: 6px; padding: 6px 10px; }   /* 1000x60 wide wordmark */
 
         /* FEATURES */
         .features-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem; }
@@ -1184,7 +1189,7 @@
                 <a href="#pricing">Pricing</a>
                 <a href="#faq">FAQ</a>
             </div>
-            <button class="nav-signin-btn" id="nav-signin-btn" onclick="openSSO()" style="display:none;">Sign In</button>
+            <button class="nav-signin-btn" id="nav-signin-btn" onclick="goLogin()" style="display:none;">Sign In</button>
             <a id="admin-nav-btn" href="/admin" title="Admin Portal" style="
               background:rgba(124,58,237,0.12);border:1px solid rgba(124,58,237,0.35);
               color:rgba(200,190,255,0.7);font-size:0.75rem;font-weight:600;
@@ -1395,41 +1400,43 @@
             <p style="text-align:center;font-size:0.78rem;color:rgba(148,163,184,0.5);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:1.5rem;">Powered by &amp; Aligned with</p>
             <div class="partners-track-wrapper">
               <div class="partners-track">
+                <!-- First copy of the loop -->
                 <div class="partner-logo-wrap">
-                    <img src="/assets/partners/sc-logo.svg" alt="Supreme Court of the Philippines" class="partner-logo partner-logo-sq">
+                    <img src="/assets/partners/sc-logo.png" alt="Supreme Court of the Philippines" class="partner-logo sc" loading="lazy">
                 </div>
                 <div class="partner-logo-wrap">
-                    <img src="/assets/partners/doc-logo-white.svg" alt="DOCONCHAIN" class="partner-logo">
+                    <img src="/assets/partners/doc-logo-white.png" alt="DOCONCHAIN" class="partner-logo doc" loading="lazy">
                 </div>
                 <div class="partner-logo-wrap">
-                    <img src="/assets/partners/hyperledger-logo.svg" alt="Hyperledger Fabric" class="partner-logo">
+                    <img src="/assets/partners/hyperledger-logo.png" alt="Hyperledger Fabric" class="partner-logo hyperledger" loading="lazy">
                 </div>
                 <div class="partner-logo-wrap">
-                    <img src="/assets/partners/dict-logo.svg" alt="DICT National PKI" class="partner-logo">
+                    <img src="/assets/partners/dict-logo.png" alt="DICT National PKI" class="partner-logo dict" loading="lazy">
                 </div>
                 <div class="partner-logo-wrap">
-                    <img src="/assets/partners/pnpki-logo.svg" alt="PNPKI" class="partner-logo partner-logo-sq">
+                    <img src="/assets/partners/pnpki-logo.jpg" alt="Philippine National PKI" class="partner-logo pnpki" loading="lazy">
                 </div>
                 <div class="partner-logo-wrap">
-                    <img src="/assets/partners/linux-foundation-logo.svg" alt="Linux Foundation" class="partner-logo partner-logo-wide">
+                    <img src="/assets/partners/linux-foundation-logo.png" alt="Linux Foundation" class="partner-logo linux" loading="lazy">
+                </div>
+                <!-- Second copy (for seamless infinite scroll: track translates -50%) -->
+                <div class="partner-logo-wrap">
+                    <img src="/assets/partners/sc-logo.png" alt="Supreme Court of the Philippines" class="partner-logo sc" loading="lazy">
                 </div>
                 <div class="partner-logo-wrap">
-                    <img src="/assets/partners/sc-logo.svg" alt="Supreme Court of the Philippines" class="partner-logo partner-logo-sq">
+                    <img src="/assets/partners/doc-logo-white.png" alt="DOCONCHAIN" class="partner-logo doc" loading="lazy">
                 </div>
                 <div class="partner-logo-wrap">
-                    <img src="/assets/partners/doc-logo-white.svg" alt="DOCONCHAIN" class="partner-logo">
+                    <img src="/assets/partners/hyperledger-logo.png" alt="Hyperledger Fabric" class="partner-logo hyperledger" loading="lazy">
                 </div>
                 <div class="partner-logo-wrap">
-                    <img src="/assets/partners/hyperledger-logo.svg" alt="Hyperledger Fabric" class="partner-logo">
+                    <img src="/assets/partners/dict-logo.png" alt="DICT National PKI" class="partner-logo dict" loading="lazy">
                 </div>
                 <div class="partner-logo-wrap">
-                    <img src="/assets/partners/dict-logo.svg" alt="DICT National PKI" class="partner-logo">
+                    <img src="/assets/partners/pnpki-logo.jpg" alt="Philippine National PKI" class="partner-logo pnpki" loading="lazy">
                 </div>
                 <div class="partner-logo-wrap">
-                    <img src="/assets/partners/pnpki-logo.svg" alt="PNPKI" class="partner-logo partner-logo-sq">
-                </div>
-                <div class="partner-logo-wrap">
-                    <img src="/assets/partners/linux-foundation-logo.svg" alt="Linux Foundation" class="partner-logo partner-logo-wide">
+                    <img src="/assets/partners/linux-foundation-logo.png" alt="Linux Foundation" class="partner-logo linux" loading="lazy">
                 </div>
               </div>
             </div>
@@ -2700,7 +2707,18 @@
         return _providerUrls;
     }
 
+    // Navigate to the dedicated login page (replaces the old SSO modal).
+    function goLogin(role) {
+        const q = role ? ('?role=' + encodeURIComponent(role)) : '';
+        window.location.href = '/login' + q;
+    }
+
     function openSSO(role) {
+        // Legacy entry point — forward to /login page so no UI breaks mid-migration.
+        return goLogin(role);
+    }
+
+    function _openSSOModal_legacy(role) {
         _ssoRole = role || null;
         const modal = document.getElementById('sso-modal');
         const badge = document.getElementById('sso-role-badge');
@@ -2884,10 +2902,10 @@
     // Handle return from OAuth (backend sets HttpOnly cookie, redirects with ?step=)
     (function handleAuthReturn() {
         const params = new URLSearchParams(window.location.search);
-        // Handle ?sso=1 — open SSO modal directly
+        // Handle ?sso=1 — redirect to the dedicated /login page (role optional)
         if (params.get('sso') === '1') {
-            window.history.replaceState({}, '', '/');
-            setTimeout(function(){ var m = document.getElementById('sso-modal'); if(m) m.classList.add('open'); }, 200);
+            const r = params.get('role');
+            window.location.replace('/login' + (r ? ('?role=' + encodeURIComponent(r)) : ''));
             return;
         }
         const step = params.get('step');
