@@ -22,7 +22,7 @@ import stat
 import base64
 import threading
 from typing import Optional
-from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Header, Request, Cookie, Response
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Header, Request, Cookie, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, HTMLResponse, RedirectResponse
 from pydantic import BaseModel
@@ -64,8 +64,9 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ FIX-7: CORS Ã¢â‚¬â€ restrict to FRONTEND_URL, not "*" Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
-_allowed_origins_raw = os.getenv("FRONTEND_URL", "https://legal.quanbyai.com")
-# Support comma-separated list of origins
+# CORS origins: prefer explicit CORS_ORIGINS list; fall back to FRONTEND_URL.
+# FRONTEND_URL itself must remain a single value (used to build redirects).
+_allowed_origins_raw = os.getenv("CORS_ORIGINS") or os.getenv("FRONTEND_URL", "https://legal.quanbyai.com")
 _allowed_origins = [o.strip() for o in _allowed_origins_raw.split(",") if o.strip()]
 
 app.add_middleware(
@@ -78,6 +79,37 @@ app.add_middleware(
 
 # In-memory contract session store (production: Redis)
 sessions: dict = {}
+
+
+# ─── Chat connection manager ──────────────────────────────────────────────────
+
+class ChatConnectionManager:
+    def __init__(self):
+        self.rooms: dict = {}  # session_id -> list[WebSocket]
+
+    async def connect(self, session_id: str, ws: WebSocket) -> None:
+        await ws.accept()
+        self.rooms.setdefault(session_id, []).append(ws)
+
+    def disconnect(self, session_id: str, ws: WebSocket) -> None:
+        room = self.rooms.get(session_id, [])
+        try:
+            room.remove(ws)
+        except ValueError:
+            pass
+
+    async def broadcast(self, session_id: str, message_dict: dict) -> None:
+        dead = []
+        for ws in list(self.rooms.get(session_id, [])):
+            try:
+                await ws.send_json(message_dict)
+            except Exception:
+                dead.append(ws)
+        for ws in dead:
+            self.disconnect(session_id, ws)
+
+
+chat_manager = ChatConnectionManager()
 
 # Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Cookie settings Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 _COOKIE_SECURE   = os.getenv("COOKIE_SECURE", "true").lower() != "false"
@@ -2893,16 +2925,11 @@ async def generate_sign_links(
                 _d = _resp_sl.json()
                 link = _d.get("message") or (_d.get("data") or {}).get("link") or _d.get("link")
                 if link and link.startswith("http"):
-                    # Resolve short link to get embedded auth token (302 Location header)
-                    resolved = link
-                    if "link.doconchain.com" in link or "doconchain.com" in link:
-                        try:
-                            _r3 = _rq_sl.get(link, headers={"User-Agent": "Mozilla/5.0"}, allow_redirects=False, timeout=8)
-                            _loc = _r3.headers.get("Location", "")
-                            if _loc and _loc.startswith("http"):
-                                resolved = _loc
-                        except Exception: pass
-                    return {"email": signer_email, "link": resolved, "status": "ok"}
+                    # Return the raw short link directly — do NOT follow redirects server-side.
+                    # DC short links contain a one-time api_token. Following redirects here
+                    # consumes the token before the browser can use it → "SESSION ENDED".
+                    # The browser must be the one to follow the DC redirect chain.
+                    return {"email": signer_email, "link": link, "status": "ok"}
                 return {"email": signer_email, "link": None, "status": "no_link", "raw": str(_d)[:100]}
             except Exception as he:
                 err = str(he)[:200]
@@ -2936,6 +2963,19 @@ async def generate_sign_links(
     else:
         # Caller is a signer — generate ONLY their own fresh link
         _to_generate = [s for s in _ordered_signers if s.get("email", "").lower() == _caller_email]
+
+    # Check DC project status before generating sign links
+    import requests as _rq_status_check
+    _dc_tok_check = _get_dc_token(email=_DC_EMAIL)
+    _status_resp = _rq_status_check.get(
+        f"{_DC_BASE}/api/v2/projects/{project_uuid}?user_type=ENTERPRISE_API",
+        headers={"Authorization": f"Bearer {_dc_tok_check}"},
+        timeout=15
+    )
+    if _status_resp.status_code == 200:
+        _proj_status = (_status_resp.json().get("data") or _status_resp.json()).get("status", "")
+        if isinstance(_proj_status, str) and _proj_status.upper() in ("DRAFT", "", "CREATED"):
+            raise HTTPException(400, "Signature fields have not been plotted yet. Please use 'Plot Signature Fields' first before signing.")
 
     sign_links = [_gen_sign_link(s["email"]) for s in _to_generate]
     # Also include other signers with None links (so frontend knows who else exists)
@@ -3341,18 +3381,28 @@ async def get_signer_status(
                                 len(_all_sr) > 0 and
                                 all(bool(r.get("signed_at")) for r in _all_sr)
                             )
+                            _dc_all_have_signed_at = (
+                                len(dc_signers) > 0 and
+                                all(bool(s.get("signed_at")) for s in dc_signers)
+                            )
                             _dc_project_completed = (
                                 (project_status or "").upper() == "COMPLETED"
                                 or bool(dc_completed_at)
-                                or _staging_all_have_signed_at  # Staging fallback
+                                or _staging_all_have_signed_at  # Staging fallback: internal SRs all have signed_at
+                                or _dc_all_have_signed_at  # DC signers all have signed_at even if project status not flipped
                             )
+                            def _is_sr_signed(r):
+                                """Internal SR is signed if status=SIGNED/COMPLETED or signed_at is set."""
+                                s = (r.get("status") or "").upper()
+                                return s in ("SIGNED", "COMPLETED") or bool(r.get("signed_at"))
                             _all_signed_now = (
                                 len(_all_sr) > 0 and
-                                all(r.get("status") == "SIGNED" for r in _all_sr) and
+                                all(_is_sr_signed(r) for r in _all_sr) and
                                 _dc_project_completed  # DC must confirm completion, not just individual signers
                             )
                             if _all_signed_now and _d4.get("status") != "completed":
                                 _d4["status"] = "completed"
+                                _d4["dc_workflow_state"] = "completed"
                                 _d4["completed_at"] = dc_completed_at or _dt.now(_tz.utc).isoformat()
                                 # ── LOG: document fully signed and marked COMPLETED ────────────────────
                                 print(
@@ -3387,7 +3437,7 @@ async def get_signer_status(
                                     flush=True
                                 )
                                 # Registry is populated ONLY on session end, not here.
-                            elif not _dc_project_completed and all(r.get("status") == "SIGNED" for r in _all_sr) and len(_all_sr) > 0:
+                            elif not _dc_project_completed and all(_is_sr_signed(r) for r in _all_sr) and len(_all_sr) > 0:
                                 print(
                                     f"[Completion] ⏳ All signers SIGNED internally but DC status={project_status} "
                                     f"completed_at={dc_completed_at} — waiting for DC to flip COMPLETED.",
@@ -3438,6 +3488,11 @@ async def get_signer_status(
 
 
 # ─── POST /api/sessions/plot-link/{project_uuid} ─────────────────────────────
+#
+# DoconChain API: POST /api/v2/projects/{uuid}/link?user_type=ENTERPRISE_API
+# Returns a short link (link.doconchain.com/xxx) that embeds a session token.
+# We resolve it server-side to get the full authenticated URL before sending
+# to the browser — this ensures the DC web session is properly established.
 
 @app.post("/api/sessions/plot-link/{project_uuid}")
 async def get_plot_link(
@@ -3445,182 +3500,80 @@ async def get_plot_link(
     authorization: Optional[str] = Header(None),
     ql_access: Optional[str] = Cookie(default=None),
 ):
-    """ENP-only. Calls DoconChain POST /api/v2/projects/{uuid}/link to get the
-    edit/draft URL for placing signature fields.  Returns { link: str }."""
+    """
+    Generate DoconChain 'Edit Draft Project Link' for the ENP to place signature fields.
+    Calls: POST /api/v2/projects/{uuid}/link?user_type=ENTERPRISE_API
+    """
     user = get_current_user(authorization, ql_access)
     if not user:
         raise HTTPException(401, "Unauthorized")
-    # All authenticated users can use QuickSign
     if not project_uuid or not project_uuid.strip():
         raise HTTPException(400, "project_uuid required")
 
-    import requests as _rq2
-    try:
-        # Per spec: get a fresh token for each attempt (invalidate cache to force re-login).
-        # Try ENP email first, then org email as fallback.
-        _plot_email = user.get("email") or _DC_EMAIL
+    import requests as _rq_pl
 
-        def _call_plot_link(token):
-            _resp2 = _rq2.post(
-                f"{_DC_BASE}/api/v2/projects/{project_uuid}/link?user_type=ENTERPRISE_API",
-                headers={"Accept": "application/json", "Authorization": f"Bearer {token}"},
-                timeout=30,
-            )
-            _resp2.raise_for_status()
-            return _resp2.json()
+    enp_email = (user.get("email") or "").lower().strip()
+    if not enp_email:
+        raise HTTPException(400, "User email not found")
 
-        # IMPORTANT: Only use the ENP's own email — NEVER fall back to _DC_EMAIL.
-        # The org default email (stg_quanby@maildrop.cc) generates a different link
-        # format that exposes raw token/api_token params in the URL and belongs to
-        # a different DoconChain account. This is the root cause of the wrong plot link.
-        enp_email = (user.get("email") or "").lower().strip()
-        if not enp_email:
-            raise HTTPException(400, "ENP email not found — cannot generate plot link")
+    # Always generate a fresh token for the ENP — never use a cached/stale token.
+    # A stale token causes DC to create a broken session that expires immediately.
+    _dc_token_cache.pop(enp_email, None)
+    _dc_token_cache.pop(_DC_EMAIL, None)
+    dc_token = _get_dc_token(email=enp_email)
+    print(f"[PlotLink] fresh token for {enp_email} | project={project_uuid[:12]}", flush=True)
 
-        # Purge ALL cached tokens for this email to force a clean re-auth.
-        # Stale tokens from a previous session (different laptop/browser) cause
-        # the wrong email to appear in the generated link.
+    # Step 1: Call DoconChain to generate the edit/draft link
+    def _call_dc(token: str):
+        return _rq_pl.post(
+            f"{_DC_BASE}/api/v2/projects/{project_uuid}/link?user_type=ENTERPRISE_API",
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+            timeout=30,
+        )
+
+    resp = _call_dc(dc_token)
+    if resp.status_code == 401:
+        # Token rejected — clear cache and retry with a completely fresh token
         _dc_token_cache.pop(enp_email, None)
         _dc_token_cache.pop(_DC_EMAIL, None)
+        dc_token = _get_dc_token(email=enp_email)
+        resp = _call_dc(dc_token)
 
-        resp_data = None
-        _last_code = 502
-        _last_body = "Unknown error"
+    if resp.status_code != 200:
+        print(f"[PlotLink] DC error {resp.status_code}: {resp.text[:200]}", flush=True)
+        raise HTTPException(resp.status_code, f"DoconChain error {resp.status_code}: {resp.text[:200]}")
 
-        # Retry up to 3 times with a fresh token each time
-        for _retry in range(3):
-            try:
-                _tok = _get_dc_token(email=enp_email)
-                print(f"[PlotLink] attempt {_retry+1}: email={enp_email} token={_tok[:12]}...", flush=True)
-            except Exception as _te:
-                _last_body = f"Token error for {enp_email}: {_te}"
-                print(f"[PlotLink] token failed attempt {_retry+1}: {_te}", flush=True)
-                _dc_token_cache.pop(enp_email, None)
-                continue
-            try:
-                resp_data = _call_plot_link(_tok)
-                print(f"[PlotLink] success on attempt {_retry+1} raw={str(resp_data)[:400]}", flush=True)
-                break
-            except _uerr2.HTTPError as he:
-                _last_code = he.code
-                _last_body = he.read().decode(errors="replace")
-                _dc_token_cache.pop(enp_email, None)
-                print(f"[PlotLink] HTTP {he.code} on attempt {_retry+1}: {_last_body[:120]}", flush=True)
-                if he.code not in (401, 403):
-                    raise HTTPException(he.code, f"DoconChain error {he.code}: {_last_body[:300]}")
-                # 401/403 → clear cache and retry with fresh token
-                continue
+    # Step 2: Extract the short link from the response
+    data = resp.json()
+    link = (
+        (data.get("data") or {}).get("link")
+        or (data.get("message") or {}).get("link")
+        or data.get("link")
+        or data.get("url")
+        or (data.get("data") or {}).get("url")
+    )
+    if not link:
+        print(f"[PlotLink] no link in response: {str(data)[:200]}", flush=True)
+        raise HTTPException(502, f"No link in DoconChain response: {str(data)[:200]}")
 
-        if resp_data is None:
-            raise HTTPException(_last_code,
-                f"DoconChain plot link failed for {enp_email}: {_last_body[:300]}")
+    # Return immediately — minimize time between link generation and browser open.
+    # DC short links have a very short TTL on staging. Any extra server-side processing
+    # (redirect following, token verify calls) adds latency that causes the link to expire
+    # before the browser can open it → ?action=login page.
+    # Return the raw short link as fast as possible.
+    print(f"[PlotLink] returning link for {project_uuid[:12]}: {link}", flush=True)
 
-        # Extract link — DC may return { data: { link: "..." } } or { link: "..." }
-        link = (
-            (resp_data.get("message") or {}).get("link")
-            or (resp_data.get("data") or {}).get("link")
-            or resp_data.get("link")
-            or resp_data.get("url")
-            or (resp_data.get("data") or {}).get("url")
-            or (resp_data.get("message") or {}).get("url")
-        )
-        if not link:
-            raise HTTPException(502, f"No link in DoconChain response: {str(resp_data)[:200]}")
-
-        # Record that plotting was started for this document
-        for _apt in _db.list_apts():
-            for _doc in _apt.get("session_documents", []):
-                _duuid = _doc.get("doconchain_project_uuid") or _doc.get("project_uuid")
-                if _duuid == project_uuid:
-                    _doc["plotting_started"] = True
-                    _doc["plotting_started_at"] = _dt.now(_tz.utc).isoformat()
-                    _db.save_apt(_apt)
-                    break
-
-        # DC returns a short link (https://link.doconchain.com/xxx).
-        # We must resolve it server-side to get the final authenticated URL
-        # (contains api_token for auto-login). Relative redirects need the base host prepended.
-        import requests as _rq_resolve
-        from urllib.parse import urljoin, urlparse as _up
-
-        _DC_APP_ORIGIN = "https://stg-app.doconchain.com"
-        _ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0"
-        _current = link
-        _resolved = link  # fallback
-
-        print(f"[PlotLink] Resolving short link: {link}", flush=True)
-        for _hop in range(5):
-            try:
-                _hr = _rq_resolve.get(
-                    _current,
-                    allow_redirects=False,
-                    timeout=10,
-                    headers={"User-Agent": _ua},
-                )
-                _loc = _hr.headers.get("Location", "")
-                print(f"[PlotLink]   hop {_hop+1}: HTTP {_hr.status_code} → {_loc[:120]}", flush=True)
-
-                if _hr.status_code not in (301, 302, 303, 307, 308) or not _loc:
-                    # No more redirects — current URL is the final one
-                    _resolved = _current
-                    break
-
-                # Handle relative redirect (e.g. /uuid?token=...&api_token=...)
-                if _loc.startswith("/"):
-                    _loc = _DC_APP_ORIGIN + _loc
-                elif not _loc.startswith("http"):
-                    _loc = urljoin(_current, _loc)
-
-                _current = _loc
-                _resolved = _loc  # keep updating — last redirect wins
-
-            except Exception as _he:
-                print(f"[PlotLink]   hop {_hop+1} error: {_he}", flush=True)
+    # Record plotting started on the appointment document
+    for _apt in _db.list_apts():
+        for _doc in _apt.get("session_documents", []):
+            _duuid = _doc.get("doconchain_project_uuid") or _doc.get("project_uuid")
+            if _duuid == project_uuid:
+                _doc["plotting_started"] = True
+                _doc["plotting_started_at"] = _dt.now(_tz.utc).isoformat()
+                _db.save_apt(_apt)
                 break
 
-        _has_api_token = "api_token=" in _resolved
-        _has_action_login = "action=login" in _resolved
-        print(f"[PlotLink] ✅ resolved: has_api_token={_has_api_token} login_redirect={_has_action_login}", flush=True)
-        print(f"[PlotLink]    final URL: {_resolved[:200]}", flush=True)
-
-        if _has_action_login:
-            # Resolved to login page — token was invalid. Try one more time with cache-busted token.
-            print(f"[PlotLink] ⚠️  resolved to login page — retrying with fresh token", flush=True)
-            _dc_token_cache.pop(enp_email, None)
-            try:
-                _tok2 = _get_dc_token(email=enp_email)
-                _r2 = _rq2.post(
-                    f"{_DC_BASE}/api/v2/projects/{project_uuid}/link?user_type=ENTERPRISE_API",
-                    headers={"Accept": "application/json", "Authorization": f"Bearer {_tok2}"},
-                    timeout=30,
-                )
-                if _r2.status_code == 200:
-                    _link2 = ((_r2.json().get("message") or {}).get("link")
-                              or (_r2.json().get("data") or {}).get("link")
-                              or _r2.json().get("link") or "")
-                    if _link2:
-                        # Re-resolve
-                        _current2 = _link2
-                        for _hop2 in range(5):
-                            _hr2 = _rq_resolve.get(_current2, allow_redirects=False, timeout=10, headers={"User-Agent": _ua})
-                            _loc2 = _hr2.headers.get("Location", "")
-                            if _hr2.status_code not in (301, 302, 303, 307, 308) or not _loc2:
-                                _resolved = _current2
-                                break
-                            if _loc2.startswith("/"): _loc2 = _DC_APP_ORIGIN + _loc2
-                            elif not _loc2.startswith("http"): _loc2 = urljoin(_current2, _loc2)
-                            _current2 = _loc2
-                            _resolved = _loc2
-                        print(f"[PlotLink] retry resolved: {_resolved[:120]}", flush=True)
-            except Exception as _rt_e:
-                print(f"[PlotLink] retry failed: {_rt_e}", flush=True)
-
-        return {"link": _resolved, "project_uuid": project_uuid}
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(502, f"Could not generate plot link: {str(e)[:200]}")
+    return {"link": link, "project_uuid": project_uuid}
 
 
 # ─── POST /api/sessions/create ────────────────────────────────────────────────
@@ -3658,7 +3611,7 @@ async def create_session(
     apt["updated_at"]           = now_iso
     _db.save_apt(apt)
 
-    session_link = f"https://legal.quanbyai.com/session?room={room_name}&apt={req.apt_id}"
+    session_link = f"{FRONTEND_URL.rstrip('/')}/session?room={room_name}&apt={req.apt_id}"
     return {
         "room_name":    room_name,
         "token":        token,
@@ -3773,7 +3726,7 @@ async def invite_to_session(
     _db.save_apt(apt)
 
     join_link = (
-        f"https://legal.quanbyai.com/lobby"
+        f"{FRONTEND_URL.rstrip('/')}/lobby"
         f"?apt={req.apt_id}&guest_token={token}&room={room_name}"
     )
     return {
@@ -4305,51 +4258,14 @@ async def session_upload_document(
     }
     doc_fee = _FEE_DEFAULTS.get(notarization_type, "₱100 – ₱300")
 
-    # Auto-add ENP and client as signers — ENP is always LAST (sequence=2)
-    _doc_signers_list = []
-
-    # Client signs first (sequence=1)
-    try:
-        _cn = apt.get("client_name","Client").split()
-        _cf = _cn[0] if _cn else "Client"
-        _cl = " ".join(_cn[1:]) if len(_cn)>1 else ""
-        _ce = (apt.get("client_email","") or "").lower().strip()
-        if _ce:
-            _add_dc_signer(project_uuid, _ce, _cf, _cl, "Signer", dc_token, sequence=1)
-            _doc_signers_list.append({
-                "email": _ce,
-                "name": f"{_cf} {_cl}".strip(),
-                "first_name": _cf,
-                "last_name": _cl,
-                "signer_role": "Signer",
-                "signing_order": 1,
-                "status": None,
-            })
-            print(f"[UploadDoc] Added client signer: {_ce} seq=1", flush=True)
-    except Exception as _cs_err:
-        print(f"[UploadDoc] Client signer error: {_cs_err}", flush=True)
-
-    # ENP signs last (sequence=2)
-    try:
-        _enp_u = enp_user or user
-        _ef = _enp_u.get("first_name","") or "ENP"
-        _el = _enp_u.get("last_name","") or ""
-        _ee = (_enp_u.get("email","") or "").lower().strip()
-        if _ee:
-            _add_dc_signer(project_uuid, _ee, _ef, _el, "Signer", dc_token, sequence=2)
-            _doc_signers_list.append({
-                "email": _ee,
-                "name": f"{_ef} {_el}".strip(),
-                "first_name": _ef,
-                "last_name": _el,
-                "signer_role": "ENP",
-                "signing_order": 2,
-                "status": None,
-                "is_enp": True,
-            })
-            print(f"[UploadDoc] Added ENP signer: {_ee} seq=2", flush=True)
-    except Exception as _es_err:
-        print(f"[UploadDoc] ENP signer error: {_es_err}", flush=True)
+    # ── Apr 22 fix: do NOT auto-add client + ENP as DoconChain signers on upload.
+    # Signers must be chosen explicitly by the ENP via the "Add Signer" modal
+    # (Select Signers → Assign Roles → Signing Order). Auto-adding caused the
+    # modal to mark everyone as "Already added" and disable the flow.
+    #
+    # Leave signers empty; frontend checks dc_signers_confirmed before locking
+    # the Add Signer button.
+    _doc_signers_list: list = []
 
     doc_entry = {
         "name": doc_name,
@@ -4363,9 +4279,12 @@ async def session_upload_document(
         "uploaded_by": user["id"],
         "uploaded_by_name": f"{user.get('first_name','')} {user.get('last_name','')}".strip(),
         "uploaded_at": _dt.now(_tz.utc).isoformat(),
-        # Signers now populated — client (seq=1) then ENP (seq=2)
-        # This ensures signer-status can correlate DC signers with local DB
+        # Empty on upload; populated as the ENP adds signers via the modal.
         "signers": _doc_signers_list,
+        # Flag used by frontend to decide whether "Add Signer" is still enabled.
+        # Set True after the ENP completes the Add Signer wizard and signers
+        # are committed to DoconChain.
+        "dc_signers_confirmed": False,
     }
     _doc_apt = _db.get_apt(apt_id)
     if _doc_apt:
@@ -4576,6 +4495,10 @@ async def add_document_signer(
                             "signer_role": signer_role, "signing_order": signing_order,
                             "added_at": _dt.now(_tz.utc).isoformat(),
                         })
+                    # Mark that the ENP has committed signers for this doc.
+                    # Frontend checks this flag (and signers.length > 0) to hide
+                    # the Add Signer button after the modal wizard completes.
+                    _d["dc_signers_confirmed"] = True
                     break
             _sig_apt["updated_at"] = _dt.now(_tz.utc).isoformat()
             _db.save_apt(_sig_apt)
@@ -4826,10 +4749,38 @@ def _populate_registry_bg(apt_id: str, enp_id: str) -> None:
             dc_ref_number = item.get("reference_number") or item.get("ref_no") or ""
             executed_at = completed_at or item.get("updated_at") or _dt.now(_tz.utc).isoformat()
 
-            # Signers snapshot: prefer DC vault signers (authoritative), fall back to local
+            # Signers snapshot: prefer DC vault signers (authoritative), fall back to local.
+            # Merge in signature_requests status/signed_at when signers[].status is null,
+            # because local session signers are initialized with status=None and only the
+            # parallel signature_requests array receives status=SIGNED/signed_at updates.
             dc_vault_signers = item.get("signers") or []
             local_signers = doc.get("signers") or []
-            dc_signers_snapshot = list(dc_vault_signers) if dc_vault_signers else list(local_signers)
+            _sig_requests = doc.get("signature_requests") or []
+            _sr_by_email = {
+                (sr.get("email") or sr.get("signer_email") or "").lower(): sr
+                for sr in _sig_requests
+                if (sr.get("email") or sr.get("signer_email"))
+            }
+
+            def _merge_sr_status(signer_list):
+                """Backfill status + signed_at from signature_requests when missing."""
+                out = []
+                for s in signer_list:
+                    s = dict(s)  # shallow copy — don't mutate source
+                    s_email = (s.get("email") or "").lower()
+                    sr = _sr_by_email.get(s_email)
+                    if sr:
+                        if not s.get("status") and sr.get("status"):
+                            s["status"] = sr.get("status")
+                        if not s.get("signed_at") and sr.get("signed_at"):
+                            s["signed_at"] = sr.get("signed_at")
+                    out.append(s)
+                return out
+
+            if dc_vault_signers:
+                dc_signers_snapshot = _merge_sr_status(dc_vault_signers)
+            else:
+                dc_signers_snapshot = _merge_sr_status(local_signers)
 
             def _signer_display_name(s):
                 """Handle both DC vault format (name) and local format (first_name/last_name)."""
@@ -7187,8 +7138,9 @@ async def quicksign_create_appointment(
     # Send email invite to the client
     try:
         from email_service import send_email
-        _session_url = f"https://legal.quanbyai.com/session?apt={apt_id}&room={room_name}&guest=1"
-        _lobby_url   = f"https://legal.quanbyai.com/lobby?apt={apt_id}&room={room_name}&guest=1"
+        _fe = FRONTEND_URL.rstrip('/')
+        _session_url = f"{_fe}/session?apt={apt_id}&room={room_name}&guest=1"
+        _lobby_url   = f"{_fe}/lobby?apt={apt_id}&room={room_name}&guest=1"
         _email_html = f"""
 <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#05060f;color:#f1f5f9;padding:32px;border-radius:12px;">
   <div style="text-align:center;margin-bottom:24px;">
@@ -7243,3 +7195,571 @@ No account needed — this link gives you direct access."""
         print(f"[QuickSign] Email invite failed (non-fatal): {_email_err}", flush=True)
 
     return {"apt_id": apt_id, "appointment_created": True, "room_name": room_name}
+
+
+# ─── GET /api/vault-doc/{project_uuid} ───────────────────────────────────────
+
+@app.get("/api/vault-doc/{project_uuid}")
+async def get_vault_doc(
+    project_uuid: str,
+    authorization: Optional[str] = Header(None),
+    ql_access: Optional[str] = Cookie(default=None),
+):
+    """Fetch notarized document URLs from DoconChain vault for a completed project."""
+    user = get_current_user(authorization, ql_access)
+    if not user:
+        raise HTTPException(401, "Unauthorized")
+    import requests as _rq_vd
+
+    def _vd_get(path: str, token: str):
+        return _rq_vd.get(
+            f"{_DC_BASE}{path}",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=20,
+        )
+
+    dc_token = _get_dc_token(email=_DC_EMAIL)
+
+    # ── Step 1: try vault endpoint ──────────────────────────────────────────
+    url = f"/vault/items/{project_uuid}?user_type=ENTERPRISE_API"
+    resp = _vd_get(url, dc_token)
+    if resp.status_code == 401:
+        _dc_token_cache.pop(_DC_EMAIL, None)
+        dc_token = _get_dc_token(email=_DC_EMAIL)
+        resp = _vd_get(url, dc_token)
+
+    vault_ok = resp.status_code == 200
+    d = {}
+    if vault_ok:
+        d = resp.json().get("data") or {}
+        if isinstance(d, list):
+            d = d[0] if d else {}
+        vault_status = (d.get("status") or "").upper()
+        vault_ok = vault_status in ("COMPLETED", "DONE", "")  # empty → assume ready
+
+    if vault_ok and d:
+        view_url = d.get("url") or d.get("dc_file_url") or ""
+        if not view_url:
+            for f in (d.get("files") or []):
+                view_url = f.get("file_url") or f.get("url") or ""
+                if view_url:
+                    break
+        return {
+            "view_url": view_url,
+            "download_url": view_url,
+            "file_name": d.get("file_name") or "notarized-document.pdf",
+            "reference_number": d.get("reference_number") or "",
+        }
+
+    # ── Step 2: vault not ready — check DC project status ──────────────────
+    proj_resp = _vd_get(f"/api/v2/projects/{project_uuid}?user_type=ENTERPRISE_API", dc_token)
+    if proj_resp.status_code == 200:
+        proj_data = proj_resp.json().get("data") or proj_resp.json()
+        proj_signers = proj_data.get("signers", [])
+        proj_status = (proj_data.get("status") or "").upper()
+        dc_completed_at = proj_data.get("completed_at") or proj_data.get("completedAt")
+
+        def _signed(s):
+            st = (s.get("status") or "").upper()
+            return st in ("SIGNED", "COMPLETED") or bool(s.get("signed_at"))
+
+        all_signed = bool(proj_signers) and all(_signed(s) for s in proj_signers)
+        dc_completed = proj_status == "COMPLETED" or bool(dc_completed_at)
+
+        if all_signed or dc_completed:
+            # All signed but vault not ready yet — still finalizing
+            raise HTTPException(
+                status_code=404,
+                detail={"reason": "finalizing", "message": "Document is being finalized by DoconChain. Please wait a moment and try again."},
+            )
+
+    # ── Step 3: not all signed / unknown ───────────────────────────────────
+    raise HTTPException(
+        status_code=404,
+        detail={"reason": "not_completed", "message": "Document not yet complete. Please check signing status."},
+    )
+
+
+# ─── Chat WebSocket ───────────────────────────────────────────────────────────
+
+@app.websocket("/ws/chat/{session_id}")
+async def chat_websocket(websocket: WebSocket, session_id: str):
+    """Real-time chat for an ENP session. Auth via ql_access cookie or ?token= JWT."""
+    # Resolve sender identity ─ try query-param JWT first (guest fallback), then cookie
+    token = websocket.query_params.get("token", "")
+    user = None
+    if token:
+        payload = verify_jwt(token)
+        if payload:
+            user = get_user(payload.get("user_id", ""))
+    if not user:
+        ql_access = websocket.cookies.get("ql_access", "")
+        if ql_access:
+            payload = verify_jwt(ql_access)
+            if payload:
+                user = get_user(payload.get("user_id", ""))
+
+    if user:
+        sender_id   = user["id"]
+        sender_name = (
+            f"{user.get('first_name', '')} {user.get('last_name', '')}".strip()
+            or user.get("email", "User")
+        )
+        sender_role = "ENP" if user.get("role") == "attorney" else "client"
+    else:
+        sender_id   = "guest"
+        sender_name = "Guest"
+        sender_role = "guest"
+
+    await chat_manager.connect(session_id, websocket)
+    try:
+        # Send last 50 messages as history
+        with _db.get_db() as conn:
+            rows = conn.execute(
+                "SELECT id, session_id, sender_id, sender_name, sender_role, content, created_at "
+                "FROM messages WHERE session_id=? ORDER BY created_at DESC LIMIT 50",
+                (session_id,),
+            ).fetchall()
+        history = list(reversed([dict(r) for r in rows]))
+        await websocket.send_json({"type": "history", "messages": history})
+
+        # Message receive loop
+        while True:
+            data = await websocket.receive_json()
+            content = str(data.get("content", "")).strip()
+            if not content or len(content) > 4000:
+                continue
+            with _db.get_db() as conn:
+                conn.execute(
+                    "INSERT INTO messages (session_id, sender_id, sender_name, sender_role, content) "
+                    "VALUES (?,?,?,?,?)",
+                    (session_id, sender_id, sender_name, sender_role, content),
+                )
+                row = conn.execute(
+                    "SELECT id, session_id, sender_id, sender_name, sender_role, content, created_at "
+                    "FROM messages WHERE session_id=? ORDER BY id DESC LIMIT 1",
+                    (session_id,),
+                ).fetchone()
+            msg = dict(row)
+            msg["type"] = "message"
+            await chat_manager.broadcast(session_id, msg)
+
+    except WebSocketDisconnect:
+        chat_manager.disconnect(session_id, websocket)
+    except Exception as exc:
+        print(f"[Chat WS] Error in session {session_id}: {exc}", flush=True)
+        chat_manager.disconnect(session_id, websocket)
+
+
+# ─── Chat REST ────────────────────────────────────────────────────────────────
+
+@app.get("/api/messages/{session_id}")
+async def get_messages(
+    session_id: str,
+    authorization: Optional[str] = Header(None),
+    ql_access: Optional[str] = Cookie(default=None),
+):
+    """Return last 50 chat messages for a session."""
+    user = get_current_user(authorization, ql_access)
+    if not user:
+        raise HTTPException(401, "Unauthorized")
+    with _db.get_db() as conn:
+        rows = conn.execute(
+            "SELECT id, session_id, sender_id, sender_name, sender_role, content, created_at "
+            "FROM messages WHERE session_id=? ORDER BY created_at DESC LIMIT 50",
+            (session_id,),
+        ).fetchall()
+    return list(reversed([dict(r) for r in rows]))
+
+
+# Note: for local dev, use `python run_local.py` from the repo root. That
+# launcher imports this app and layers SPA-style frontend routing on top.
+# In production, nginx handles static files and proxies /api/* to uvicorn,
+# so main.py stays pure-API here.
+
+
+# ═══ DIRECT MESSAGES (Messenger-style) ════════════════════════════════════════════
+# Separate from /ws/chat/{session_id} which is the in-session notarization chat.
+# Here each pair of users has a persistent conversation keyed by sorted user ids.
+
+def _dm_conv_key(user_a: str, user_b: str) -> str:
+    a, b = sorted([user_a or "", user_b or ""])
+    return f"{a}:{b}"
+
+
+class _DMConnectionManager:
+    """Track live DM websocket connections keyed by user_id.
+    One user may have multiple tabs/devices open."""
+
+    def __init__(self):
+        self.sockets: dict = {}  # user_id -> list[WebSocket]
+
+    async def connect(self, user_id: str, ws: WebSocket) -> None:
+        await ws.accept()
+        self.sockets.setdefault(user_id, []).append(ws)
+
+    def disconnect(self, user_id: str, ws: WebSocket) -> None:
+        arr = self.sockets.get(user_id, [])
+        try:
+            arr.remove(ws)
+        except ValueError:
+            pass
+        if not arr:
+            self.sockets.pop(user_id, None)
+
+    async def send_to(self, user_id: str, payload: dict) -> None:
+        dead = []
+        for ws in list(self.sockets.get(user_id, [])):
+            try:
+                await ws.send_json(payload)
+            except Exception:
+                dead.append(ws)
+        for ws in dead:
+            self.disconnect(user_id, ws)
+
+
+dm_manager = _DMConnectionManager()
+
+
+def _dm_user_summary(u: dict) -> dict:
+    """Minimal user object safe to expose in DM listings."""
+    return {
+        "id":         u.get("id"),
+        "email":      u.get("email"),
+        "first_name": u.get("first_name") or "",
+        "last_name":  u.get("last_name") or "",
+        "name":       f"{u.get('first_name','') or ''} {u.get('last_name','') or ''}".strip() or (u.get("email") or "User"),
+        "picture":    u.get("picture") or "",
+        "role":       u.get("role") or "client",
+    }
+
+
+def _dm_contact_ids_for(user: dict) -> set:
+    """Return the set of user-ids this user is allowed to DM.
+    Rule: anyone they share an appointment with (as ENP or client).
+    """
+    uid = user.get("id")
+    if not uid:
+        return set()
+    apts = _db.list_apts() or []
+    contacts = set()
+    for a in apts:
+        enp_id    = a.get("enp_id")
+        client_id = a.get("client_id")
+        if uid == enp_id and client_id and not client_id.startswith("guest:"):
+            contacts.add(client_id)
+        elif uid == client_id and enp_id:
+            contacts.add(enp_id)
+    contacts.discard(uid)
+    return contacts
+
+
+@app.get("/api/dm/contacts")
+async def dm_list_contacts(
+    authorization: Optional[str] = Header(None),
+    ql_access: Optional[str] = Cookie(default=None),
+):
+    """People this user is allowed to message (co-participants of past appointments)."""
+    user = get_current_user(authorization, ql_access)
+    if not user:
+        raise HTTPException(401, "Unauthorized")
+    ids = _dm_contact_ids_for(user)
+    out = []
+    for cid in ids:
+        u = get_user(cid)
+        if u:
+            out.append(_dm_user_summary(u))
+    # Stable sort by name
+    out.sort(key=lambda x: (x.get("name") or "").lower())
+    return {"contacts": out}
+
+
+@app.get("/api/dm/conversations")
+async def dm_list_conversations(
+    authorization: Optional[str] = Header(None),
+    ql_access: Optional[str] = Cookie(default=None),
+):
+    """List my conversations with last-message preview and unread count.
+    Union of (a) users I have DM history with, and (b) contacts from appointments.
+    Sorted by last-message time, then by contact name.
+    """
+    user = get_current_user(authorization, ql_access)
+    if not user:
+        raise HTTPException(401, "Unauthorized")
+    uid = user["id"]
+
+    with _db.get_db() as conn:
+        # Users with DM history
+        rows = conn.execute(
+            """SELECT CASE WHEN sender_id=? THEN recipient_id ELSE sender_id END AS other_id,
+                      MAX(created_at) AS last_at
+               FROM dm_messages
+               WHERE sender_id=? OR recipient_id=?
+               GROUP BY other_id""",
+            (uid, uid, uid),
+        ).fetchall()
+        history_map = {r["other_id"]: r["last_at"] for r in rows}
+
+        # Unread counts per other_id
+        unread_rows = conn.execute(
+            """SELECT sender_id AS other_id, COUNT(*) AS n
+               FROM dm_messages
+               WHERE recipient_id=? AND read_at IS NULL
+               GROUP BY sender_id""",
+            (uid,),
+        ).fetchall()
+        unread_map = {r["other_id"]: r["n"] for r in unread_rows}
+
+        # Last message preview
+        preview_map: dict = {}
+        for other_id in history_map.keys():
+            ck = _dm_conv_key(uid, other_id)
+            r = conn.execute(
+                """SELECT sender_id, content, created_at FROM dm_messages
+                   WHERE conv_key=? ORDER BY id DESC LIMIT 1""",
+                (ck,),
+            ).fetchone()
+            if r:
+                preview_map[other_id] = {
+                    "sender_id":  r["sender_id"],
+                    "content":    r["content"],
+                    "created_at": r["created_at"],
+                    "from_me":    r["sender_id"] == uid,
+                }
+
+    # Merge contacts (appointments) in as empty conversations if not in history
+    contact_ids = _dm_contact_ids_for(user)
+    all_ids = set(history_map.keys()) | contact_ids
+
+    convs = []
+    for other_id in all_ids:
+        other = get_user(other_id)
+        if not other:
+            continue
+        convs.append({
+            "other":        _dm_user_summary(other),
+            "last_message": preview_map.get(other_id),
+            "last_at":      history_map.get(other_id),
+            "unread_count": unread_map.get(other_id, 0),
+        })
+
+    convs.sort(key=lambda c: (c["last_at"] or "0", c["other"]["name"].lower()), reverse=True)
+    # Names ascending when last_at is tied; fix by re-sorting stably
+    convs.sort(key=lambda c: (0 if c["last_at"] else 1,
+                               -1 * int(bool(c["last_at"])) and 0,
+                               (c["other"]["name"] or "").lower()))
+    convs.sort(key=lambda c: (c["last_at"] or ""), reverse=True)
+
+    total_unread = sum(c["unread_count"] for c in convs)
+    return {"conversations": convs, "unread_total": total_unread}
+
+
+@app.get("/api/dm/unread-count")
+async def dm_unread_count(
+    authorization: Optional[str] = Header(None),
+    ql_access: Optional[str] = Cookie(default=None),
+):
+    """Total unread DM count for the current user (for nav badge)."""
+    user = get_current_user(authorization, ql_access)
+    if not user:
+        raise HTTPException(401, "Unauthorized")
+    with _db.get_db() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM dm_messages WHERE recipient_id=? AND read_at IS NULL",
+            (user["id"],),
+        ).fetchone()
+    return {"unread": row["n"] if row else 0}
+
+
+def _dm_ensure_can_message(user: dict, other_id: str) -> dict:
+    """Authorize a DM between `user` and `other_id`.
+    Returns the other user dict. Raises HTTPException on denial."""
+    if not other_id or other_id == user["id"]:
+        raise HTTPException(400, "Invalid recipient")
+    other = get_user(other_id)
+    if not other:
+        raise HTTPException(404, "Recipient not found")
+    # Must share at least one appointment (as enp<->client pair)
+    allowed = _dm_contact_ids_for(user)
+    if other_id not in allowed:
+        # Also allow if they've already exchanged at least one message
+        # (covers historical threads if the appointment was deleted).
+        with _db.get_db() as conn:
+            r = conn.execute(
+                "SELECT 1 FROM dm_messages WHERE conv_key=? LIMIT 1",
+                (_dm_conv_key(user["id"], other_id),),
+            ).fetchone()
+        if not r:
+            raise HTTPException(
+                403,
+                "You can only message people you share an appointment with.",
+            )
+    return other
+
+
+@app.get("/api/dm/conversations/{other_id}/messages")
+async def dm_get_messages(
+    other_id: str,
+    before: Optional[str] = None,
+    limit: int = 50,
+    authorization: Optional[str] = Header(None),
+    ql_access: Optional[str] = Cookie(default=None),
+):
+    """Return up to `limit` messages (oldest->newest), optionally before a timestamp."""
+    user = get_current_user(authorization, ql_access)
+    if not user:
+        raise HTTPException(401, "Unauthorized")
+    other = _dm_ensure_can_message(user, other_id)
+    limit = max(1, min(int(limit or 50), 200))
+    ck = _dm_conv_key(user["id"], other_id)
+
+    with _db.get_db() as conn:
+        if before:
+            rows = conn.execute(
+                """SELECT id, sender_id, recipient_id, content, created_at, read_at
+                   FROM dm_messages WHERE conv_key=? AND created_at < ?
+                   ORDER BY id DESC LIMIT ?""",
+                (ck, before, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT id, sender_id, recipient_id, content, created_at, read_at
+                   FROM dm_messages WHERE conv_key=?
+                   ORDER BY id DESC LIMIT ?""",
+                (ck, limit),
+            ).fetchall()
+    msgs = [dict(r) for r in reversed(rows)]
+    for m in msgs:
+        m["from_me"] = m["sender_id"] == user["id"]
+    return {
+        "other":    _dm_user_summary(other),
+        "messages": msgs,
+    }
+
+
+class _DMSendReq(BaseModel):
+    content: str
+
+
+@app.post("/api/dm/conversations/{other_id}/messages")
+async def dm_send_message(
+    other_id: str,
+    req: _DMSendReq,
+    authorization: Optional[str] = Header(None),
+    ql_access: Optional[str] = Cookie(default=None),
+):
+    user = get_current_user(authorization, ql_access)
+    if not user:
+        raise HTTPException(401, "Unauthorized")
+    other = _dm_ensure_can_message(user, other_id)
+    content = (req.content or "").strip()
+    if not content:
+        raise HTTPException(400, "Empty message")
+    if len(content) > 4000:
+        raise HTTPException(400, "Message too long (max 4000 chars)")
+
+    ck = _dm_conv_key(user["id"], other_id)
+    with _db.get_db() as conn:
+        conn.execute(
+            """INSERT INTO dm_messages (conv_key, sender_id, recipient_id, content)
+               VALUES (?,?,?,?)""",
+            (ck, user["id"], other_id, content),
+        )
+        row = conn.execute(
+            """SELECT id, sender_id, recipient_id, content, created_at, read_at
+               FROM dm_messages WHERE conv_key=? ORDER BY id DESC LIMIT 1""",
+            (ck,),
+        ).fetchone()
+    msg = dict(row)
+
+    # Deliver realtime to both ends (sender for multi-device echo)
+    payload = {"type": "message", "message": {**msg, "from_me": False}, "other_id": user["id"]}
+    try:
+        await dm_manager.send_to(other_id, payload)
+    except Exception:
+        pass
+    echo = {"type": "message", "message": {**msg, "from_me": True}, "other_id": other_id}
+    try:
+        await dm_manager.send_to(user["id"], echo)
+    except Exception:
+        pass
+
+    msg["from_me"] = True
+    return {"message": msg}
+
+
+@app.post("/api/dm/conversations/{other_id}/read")
+async def dm_mark_read(
+    other_id: str,
+    authorization: Optional[str] = Header(None),
+    ql_access: Optional[str] = Cookie(default=None),
+):
+    user = get_current_user(authorization, ql_access)
+    if not user:
+        raise HTTPException(401, "Unauthorized")
+    _dm_ensure_can_message(user, other_id)
+    ck = _dm_conv_key(user["id"], other_id)
+    with _db.get_db() as conn:
+        conn.execute(
+            """UPDATE dm_messages SET read_at=CURRENT_TIMESTAMP
+               WHERE conv_key=? AND recipient_id=? AND read_at IS NULL""",
+            (ck, user["id"]),
+        )
+    # Notify sender for read receipts
+    try:
+        await dm_manager.send_to(other_id, {"type": "read", "by": user["id"]})
+    except Exception:
+        pass
+    return {"success": True}
+
+
+@app.websocket("/ws/dm")
+async def dm_websocket(websocket: WebSocket):
+    """Authenticated DM socket. Receives all incoming messages for this user.
+    Auth via ql_access cookie or ?token= JWT."""
+    token = websocket.query_params.get("token", "")
+    user = None
+    if token:
+        payload = verify_jwt(token)
+        if payload:
+            user = get_user(payload.get("user_id", ""))
+    if not user:
+        ql_access = websocket.cookies.get("ql_access", "")
+        if ql_access:
+            payload = verify_jwt(ql_access)
+            if payload:
+                user = get_user(payload.get("user_id", ""))
+    if not user:
+        await websocket.close(code=4401)
+        return
+
+    uid = user["id"]
+    await dm_manager.connect(uid, websocket)
+    try:
+        # Light keep-alive loop; clients use REST to send to avoid write races.
+        while True:
+            data = await websocket.receive_json()
+            # Allow optional client-initiated "ping" / "typing" passthroughs.
+            if not isinstance(data, dict):
+                continue
+            t = data.get("type")
+            if t == "ping":
+                await websocket.send_json({"type": "pong"})
+            elif t == "typing":
+                to_id = str(data.get("to") or "")
+                if to_id and to_id != uid:
+                    # Only forward if the target is a permitted contact
+                    try:
+                        _dm_ensure_can_message(user, to_id)
+                        await dm_manager.send_to(to_id, {
+                            "type":  "typing",
+                            "from":  uid,
+                            "typing": bool(data.get("typing")),
+                        })
+                    except Exception:
+                        pass
+    except WebSocketDisconnect:
+        dm_manager.disconnect(uid, websocket)
+    except Exception as exc:
+        print(f"[DM WS] error for {uid}: {exc}", flush=True)
+        dm_manager.disconnect(uid, websocket)
