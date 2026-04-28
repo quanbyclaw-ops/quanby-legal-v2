@@ -253,6 +253,39 @@ def get_current_user(
     return get_user(payload.get("user_id", ""))
 
 
+def _user_can_access_apt(user: dict, apt: dict) -> bool:
+    """Return True if `user` is allowed to read/write this appointment.
+
+    Membership rules (any one is sufficient):
+      - user.id matches apt.enp_id or apt.client_id
+      - apt.client_id starts with 'guest:' AND user.email matches apt.client_email
+        (covers QuickSign appointments where the client signed up as a real
+        user later but the apt still references them by guest:<email>)
+      - user.email matches the enp_email
+      - user.email is in any session_participants[].email
+
+    Used by /signer-status, /mark-signed, /upload-document, etc. Replaces the
+    too-strict `user.id in (enp_id, client_id)` check that 403'd real users
+    on QuickSign appointments.
+    """
+    if not user or not apt:
+        return False
+    uid = user.get("id") or ""
+    email = (user.get("email") or "").lower().strip()
+    if uid and uid in (apt.get("enp_id") or "", apt.get("client_id") or ""):
+        return True
+    if email:
+        if email == (apt.get("enp_email") or "").lower().strip():
+            return True
+        client_id = apt.get("client_id") or ""
+        if client_id.startswith("guest:") and email == (apt.get("client_email") or "").lower().strip():
+            return True
+        for _p in (apt.get("session_participants") or []):
+            if (_p.get("email") or "").lower().strip() == email:
+                return True
+    return False
+
+
 # Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Endpoints Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
 @app.get("/api/health")
@@ -3200,7 +3233,7 @@ async def get_signer_status(
     apt = _db.get_apt(apt_id)
     if not apt:
         raise HTTPException(404, "Appointment not found")
-    if user["id"] not in (apt.get("enp_id"), apt.get("client_id")):
+    if not _user_can_access_apt(user, apt):
         raise HTTPException(403, "Not authorized for this session")
 
     # ── DIAGNOSTIC: Verify UUID is consistent with what's stored in DB (Point 1) ──
@@ -3788,6 +3821,11 @@ async def get_session(
         "client_id":                    apt.get("client_id"),
         "enp_id":                       apt.get("enp_id"),
         "accepted_participant_emails":  sorted(_accepted_emails),
+        # QuickSign appointments have plotting completed before the meeting
+        # session opens — the meeting is signing-only. Frontend uses this flag
+        # to hide the Plot Signature Fields button in QuickSign sessions.
+        "quicksign":                    bool(apt.get("quicksign")),
+        "dc_workflow_state":            apt.get("dc_workflow_state"),
     }
 
 
@@ -4168,7 +4206,7 @@ async def session_upload_document(
     apt = _db.get_apt(apt_id)
     if not apt:
         raise HTTPException(404, "Appointment not found")
-    if user["id"] not in (apt.get("enp_id"), apt.get("client_id")):
+    if not _user_can_access_apt(user, apt):
         raise HTTPException(403, "Not authorized for this session")
 
     form = await request.form()

@@ -727,7 +727,10 @@ function addDocumentToList(doc) {
   // Hidden initially: only revealed after at least one signer has been added.
   // Shown by the Add Signer wizard's save flow (see save() in the modal) and
   // by the appointment restore path when doc.signers.length > 0.
-  const plotSignBtn = projectUuid
+  // For QuickSign sessions, plotting happens BEFORE the meeting (Step 4 of the
+  // wizard) so the meeting is signing-only — button is never rendered.
+  const _isQuickSign = !!(_sessionInfo && _sessionInfo.quicksign);
+  const plotSignBtn = (projectUuid && !_isQuickSign)
     ? `<button onclick="openPlotSignature('${escHtml(projectUuid)}')" style="display:none;align-items:center;justify-content:center;gap:.35rem;width:100%;margin-top:.45rem;padding:.45rem .75rem;background:rgba(167,139,250,.1);border:1px solid rgba(167,139,250,.3);border-radius:8px;color:#a78bfa;font-size:.75rem;font-weight:700;cursor:pointer;transition:background .2s;" onmouseover="this.style.background='rgba(167,139,250,.22)'" onmouseout="this.style.background='rgba(167,139,250,.1)'" id="plot-sign-btn-${escHtml(projectUuid)}"><i class="hgi-stroke hgi-pen-tool-01" style="font-size:.82rem;"></i> Plot Signature Fields</button>`
     : '';
 
