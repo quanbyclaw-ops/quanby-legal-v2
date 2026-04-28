@@ -2053,7 +2053,16 @@ async function startExam() {
     document.getElementById('exam-questions').innerHTML = '<div style="text-align:center;padding:2rem;color:var(--muted);"><div class="big-spinner" style="width:36px;height:36px;border:3px solid rgba(255,255,255,0.1);border-top-color:var(--purple);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 1rem;"></div>Loading your 50-question exam…</div>';
     document.getElementById('page-nav').innerHTML = '';
     try {
-        const res = await fetch('/api/certification/start', { method: 'GET', credentials: 'include' });
+        async function _doStart() {
+            return fetch('/api/certification/start', { method: 'GET', credentials: 'include' });
+        }
+        let res = await _doStart();
+        if (res.status === 401) {
+            try {
+                const rr = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'include' });
+                if (rr.ok) res = await _doStart();
+            } catch (e) {}
+        }
         if (!res.ok) throw new Error((await res.json()).detail || 'Failed to start exam');
         const data = await res.json();
         _questions = data.questions;
@@ -2202,14 +2211,35 @@ async function submitExam() {
     document.getElementById('timer-banner').style.display = 'none';
     document.getElementById('err-exam').textContent = '';
     try {
-        const res = await fetch('/api/certification/submit', {
-            method: 'POST', credentials: 'include',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ answers: _answers, test_session_id: _testSessionId })
-        });
+        // The certification test can take 30+ minutes. The access token is
+        // short-lived (15 min) so by the time the user submits, ql_access may
+        // have expired — backend would respond 401 "Unauthorized". Refresh the
+        // token once and retry before giving up.
+        async function _doSubmit() {
+            return fetch('/api/certification/submit', {
+                method: 'POST', credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ answers: _answers, test_session_id: _testSessionId })
+            });
+        }
+
+        let res = await _doSubmit();
+        if (res.status === 401) {
+            try {
+                const rr = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'include' });
+                if (rr.ok) {
+                    res = await _doSubmit();  // retry once with fresh access cookie
+                }
+            } catch (e) { /* fall through to error handling below */ }
+        }
+
         let data;
         try { data = await res.json(); } catch(jsonErr) { throw new Error('Server error — could not parse response.'); }
         if (!res.ok) {
+            // Friendlier message for the auth case so users know it's recoverable
+            if (res.status === 401) {
+                throw new Error('Your session expired during the test. Please sign in again — your answers were preserved on this page; resubmit after re-authenticating.');
+            }
             const msg = (data && (typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail))) || 'Submission failed.';
             throw new Error(msg);
         }
