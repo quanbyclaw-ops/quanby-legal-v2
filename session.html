@@ -703,6 +703,7 @@ function addDocumentToList(doc) {
   }[doc.type] || doc.type;
 
   const projectUuid = doc.project_uuid || '';
+  const dcProjectUuid = doc.doconchain_project_uuid || doc.project_uuid || '';
   // Short UUID shown on card so ENP can confirm which doc they're acting on
   const shortUuid = projectUuid ? projectUuid.slice(0, 8) : '';
 
@@ -722,9 +723,12 @@ function addDocumentToList(doc) {
   // Signers list container (populated as signers are added)
   const signersDiv = `<div class="signers-list" id="signers-${escHtml(projectUuid)}" style="margin-top:.5rem;"></div>`;
 
-  // Plot Signature Fields button - ENP only, shown when project has a UUID
+  // Plot Signature Fields button - ENP only, shown when project has a UUID.
+  // Hidden initially: only revealed after at least one signer has been added.
+  // Shown by the Add Signer wizard's save flow (see save() in the modal) and
+  // by the appointment restore path when doc.signers.length > 0.
   const plotSignBtn = projectUuid
-    ? `<button onclick="openPlotSignature('${escHtml(projectUuid)}')" style="display:flex;align-items:center;justify-content:center;gap:.35rem;width:100%;margin-top:.45rem;padding:.45rem .75rem;background:rgba(167,139,250,.1);border:1px solid rgba(167,139,250,.3);border-radius:8px;color:#a78bfa;font-size:.75rem;font-weight:700;cursor:pointer;transition:background .2s;" onmouseover="this.style.background='rgba(167,139,250,.22)'" onmouseout="this.style.background='rgba(167,139,250,.1)'" id="plot-sign-btn-${escHtml(projectUuid)}"><i class="hgi-stroke hgi-pen-tool-01" style="font-size:.82rem;"></i> Plot Signature Fields</button>`
+    ? `<button onclick="openPlotSignature('${escHtml(projectUuid)}')" style="display:none;align-items:center;justify-content:center;gap:.35rem;width:100%;margin-top:.45rem;padding:.45rem .75rem;background:rgba(167,139,250,.1);border:1px solid rgba(167,139,250,.3);border-radius:8px;color:#a78bfa;font-size:.75rem;font-weight:700;cursor:pointer;transition:background .2s;" onmouseover="this.style.background='rgba(167,139,250,.22)'" onmouseout="this.style.background='rgba(167,139,250,.1)'" id="plot-sign-btn-${escHtml(projectUuid)}"><i class="hgi-stroke hgi-pen-tool-01" style="font-size:.82rem;"></i> Plot Signature Fields</button>`
     : '';
 
   // Refresh Status button - polls DoconChain for signing completion
@@ -741,7 +745,7 @@ function addDocumentToList(doc) {
     <div style="display:flex;align-items:flex-start;gap:.65rem;">
       <div style="width:36px;height:36px;flex-shrink:0;background:rgba(201,168,76,.12);border:1px solid rgba(201,168,76,.2);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:1.1rem;"><i class="hgi-stroke hgi-file-01" style="font-size:1.1rem;color:var(--gold);"></i></div>
       <div style="flex:1;min-width:0;">
-        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:.5rem;margin-bottom:.2rem;">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:.5rem;margin-bottom:.2rem;position:relative;">
           <div style="min-width:0;">
             <div class="doc-title" style="font-weight:700;font-size:.88rem;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px;" title="${escHtml(doc.name)} [${shortUuid}]">${escHtml(doc.name)}</div>
             <div style="font-size:.72rem;color:var(--muted);margin-top:.1rem;">${escHtml(fmtType)} <span style="color:rgba(255,255,255,.25);font-family:monospace;font-size:.68rem;">#${shortUuid}</span></div>
@@ -760,6 +764,25 @@ function addDocumentToList(doc) {
               onblur="saveFeeEdit('${escHtml(projectUuid)}')"
               onkeydown="if(event.key==='Enter'){saveFeeEdit('${escHtml(projectUuid)}');}if(event.key==='Escape'){cancelFeeEdit('${escHtml(projectUuid)}');}">
             <div style="font-size:.65rem;color:var(--muted);margin-top:.05rem;">est. fee</div>
+          </div>
+          <div style="position:relative;">
+            <button id="meatball-btn-${escHtml(projectUuid)}" onclick="toggleMeatball(event,'meatball-menu-${escHtml(projectUuid)}')"
+              style="display:none;background:none;border:none;cursor:pointer;padding:4px 6px;color:var(--muted,#8892a4);font-size:1.1rem;line-height:1;border-radius:6px;flex-shrink:0;"
+              title="More options"><i class="hgi-stroke hgi-more-vertical"></i></button>
+            <div id="meatball-menu-${escHtml(projectUuid)}" style="display:none;position:absolute;right:0;top:100%;z-index:500;background:var(--surface,#1a1d2e);border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:4px 0;min-width:220px;box-shadow:0 6px 20px rgba(0,0,0,.5);">
+              <div onclick="fetchVaultDoc('${escHtml(dcProjectUuid)}','view')" class="meatball-item"
+                style="display:flex;align-items:center;gap:8px;padding:9px 14px;font-size:.82rem;color:var(--text,#e2e8f0);cursor:pointer;white-space:nowrap;"
+                onmouseover="this.style.background='rgba(255,255,255,.06)'" onmouseout="this.style.background=''">
+                <i class="hgi-stroke hgi-eye" style="font-size:.85rem;color:var(--teal,#00b4d8);"></i>
+                View Notarized Document
+              </div>
+              <div onclick="fetchVaultDoc('${escHtml(dcProjectUuid)}','download')" class="meatball-item"
+                style="display:flex;align-items:center;gap:8px;padding:9px 14px;font-size:.82rem;color:var(--text,#e2e8f0);cursor:pointer;white-space:nowrap;"
+                onmouseover="this.style.background='rgba(255,255,255,.06)'" onmouseout="this.style.background=''">
+                <i class="hgi-stroke hgi-download-04" style="font-size:.85rem;color:var(--teal,#00b4d8);"></i>
+                Download Notarized Document
+              </div>
+            </div>
           </div>
         </div>
         ${doc.desc ? `<div style="font-size:.71rem;color:var(--muted);margin-top:.15rem;font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escHtml(doc.desc)}">${escHtml(doc.desc)}</div>` : ''}
@@ -1172,6 +1195,12 @@ const _SW = (() => {
     const addBtn = document.getElementById('add-signer-btn-' + lastProjectUuid);
     if (addBtn) addBtn.style.display = 'none';
 
+    // Reveal the Plot Signature Fields button now that signers are committed.
+    if (savedCount > 0) {
+      const plotBtn = document.getElementById('plot-sign-btn-' + lastProjectUuid);
+      if (plotBtn) plotBtn.style.display = 'flex';
+    }
+
     closeSignerModal();
     qlToast(`✓ ${savedCount} ${savedCount === 1 ? 'signatory' : 'signatories'} saved successfully.`, 'success');
     setTimeout(_syncSessionState, 1500);
@@ -1192,10 +1221,22 @@ const _SW = (() => {
       ['plot-sign-btn-',   'onclick',      `openPlotSignature('${newUuid}')`],
       ['sign-doc-btn-',    'onclick',      `openSignDocument('${newUuid}', '${APT_ID||''}')`],
       ['refresh-status-btn-','onclick',    `refreshSignerStatus('${newUuid}', '${APT_ID||''}')`],
+      ['meatball-btn-',    'onclick',      `toggleMeatball(event,'meatball-menu-${newUuid}')`],
+      ['meatball-menu-',   null,           null],
     ].forEach(([prefix, attr, val]) => {
       const el = document.getElementById(prefix + oldUuid);
       if (el) { el.id = prefix + newUuid; if (attr) el.setAttribute(attr, val); }
     });
+    // Update fetchVaultDoc onclick attributes inside the meatball menu
+    const meatballMenu = document.getElementById('meatball-menu-' + newUuid);
+    if (meatballMenu) {
+      meatballMenu.querySelectorAll('.meatball-item').forEach(item => {
+        const oc = item.getAttribute('onclick') || '';
+        if (oc.includes('fetchVaultDoc')) {
+          item.setAttribute('onclick', oc.replace(/fetchVaultDoc\('[^']*'/g, `fetchVaultDoc('${newUuid}'`));
+        }
+      });
+    }
   }
 
   // ── Reset ────────────────────────────────────────────────────────
@@ -1418,9 +1459,11 @@ function _refreshSignerBadges(projectUuid) {
     }
   }
 
-  // All signed - hide button, show completed state
+  // All signed - hide button, show completed state + meatball menu
   if (allSigned && chips.length > 0) {
     signBtn.style.display = 'none';
+    const _mb = document.getElementById('meatball-btn-' + projectUuid);
+    if (_mb) _mb.style.display = 'flex';
     return;
   }
 
@@ -1820,6 +1863,10 @@ function postJoinSetup(userName, role, userRole) {
 
   // Restore any documents already uploaded in this session (survives refresh)
   restoreSessionDocuments();
+
+  // Init in-session chat
+  const _chatUid = (_me && _me.id) ? _me.id : 'guest';
+  initChat(_chatUid, userName, role, APT_ID);
 }
 
 function restoreSessionDocuments() {
@@ -1846,6 +1893,10 @@ function restoreSessionDocuments() {
       doc.signers.forEach(signer => renderSignerChip(projUuid, signer));
       const _ab = document.getElementById('add-signer-btn-' + projUuid);
       if (_ab) _ab.style.display = 'none';
+      // Reveal the Plot Signature Fields button (was hidden by default until
+      // signers exist).
+      const _pb = document.getElementById('plot-sign-btn-' + projUuid);
+      if (_pb) _pb.style.display = 'flex';
     }
     // Show refresh status button if plotting done
     if (projUuid && doc.plotting_started) {
@@ -2893,251 +2944,112 @@ if (!APT_ID) {
 
 <script>
 async function openPlotSignature(projectUuid) {
-  if (!window._isEnp) return;
-  if (!window._plottingDone) window._plottingDone = {};
-
-  // Guard: confirm which document is being plotted (prevents wrong-doc errors when multiple docs look identical)
-  const _docForPlot = (_sessionInfo && Array.isArray(_sessionInfo.session_documents)
-    ? _sessionInfo.session_documents : [])
-    .find(d => (d.project_uuid || d.doconchain_project_uuid) === projectUuid);
-  const _docNameForPlot = (_docForPlot && (_docForPlot.doc_name || _docForPlot.name)) || 'this document';
-  const _confirmed = await qlConfirm(
-    'Confirm: Plot Signature Fields',
-    `You are about to place signature fields on:<br><br>
-     <strong style="color:var(--text)">${_docNameForPlot}</strong><br>
-     <span style="font-family:monospace;font-size:.75rem;color:#818cf8">ID: ${projectUuid}</span><br><br>
-     <span style="font-size:.78rem;color:var(--muted)">Make sure this is the correct document before proceeding.</span>`,
-    'Yes, Plot This Document'
-  );
-  if (!_confirmed) return;
-
-  // Show loading state on button immediately
-  var _plotBtn = document.getElementById('plot-sign-btn-' + projectUuid);
-  var _origBtnHTML = _plotBtn ? _plotBtn.innerHTML : '';
-  if (_plotBtn) {
-    _plotBtn.disabled = true;
-    _plotBtn.style.opacity = '1';
-    _plotBtn.style.cursor = 'not-allowed';
-    _plotBtn.style.background = 'rgba(107,114,128,.15)';
-    _plotBtn.style.borderColor = 'rgba(107,114,128,.35)';
-    _plotBtn.style.color = '#9ca3af';
-    _plotBtn.innerHTML = '<div style="width:12px;height:12px;border:2px solid rgba(167,139,250,.3);border-top-color:#a78bfa;border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0;"></div> Getting link...';
+  const btn = document.getElementById('plot-sign-btn-' + projectUuid);
+  const origHTML = btn ? btn.innerHTML : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i class="hgi-stroke hgi-loader-03" style="font-size:.85rem;animation:spin 1s linear infinite;display:inline-block;"></i> <strong>Generating link…</strong>';
+    btn.style.opacity = '0.75';
   }
 
-  function _resetBtn(errMsg) {
-    if (_plotBtn) {
-      _plotBtn.disabled = false;
-      _plotBtn.style.opacity = '1';
-      _plotBtn.style.cursor = 'pointer';
-      _plotBtn.style.background = 'rgba(167,139,250,.1)';
-      _plotBtn.style.borderColor = 'rgba(167,139,250,.3)';
-      _plotBtn.style.color = '#a78bfa';
-      _plotBtn.innerHTML = _origBtnHTML || '<i class="hgi-stroke hgi-pen-tool-01" style="font-size:.82rem;"></i> Plot Signature Fields';
-      _plotBtn.onmouseover = function() { this.style.background='rgba(167,139,250,.22)'; };
-      _plotBtn.onmouseout  = function() { this.style.background='rgba(167,139,250,.1)'; };
-    }
-    if (errMsg) {
-      qlAlert('Plot Signature Error', errMsg, '<i class="hgi-stroke hgi-pen-tool-01" style="color:#a78bfa"></i>');
-    }
-  }
-
-  // Silently refresh auth token first
-  try { await fetch('/api/auth/refresh', { method: 'POST', credentials: 'include' }); } catch(e) {}
+  // Pre-open the tab immediately from user gesture to avoid popup blocker.
+  // We set the URL after validation — if invalid we close it.
+  const preTab = window.open('about:blank', '_blank');
 
   try {
-    const r = await fetch(`/api/sessions/plot-link/${encodeURIComponent(projectUuid)}`, {
+    // Call plot-link immediately — minimize latency so DC short link doesn't expire.
+    // Backend generates fresh DC token on every call (cache is cleared server-side).
+    const r = await fetch('/api/sessions/plot-link/' + encodeURIComponent(projectUuid), {
       method: 'POST',
       credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Cache-Control': 'no-cache' },
     });
+
     let data;
     const ct = r.headers.get('content-type') || '';
     if (ct.includes('application/json')) {
       data = await r.json();
     } else {
-      const raw = await r.text();
-      if (raw.trim().startsWith('<')) throw new Error('Server error (HTTP ' + r.status + '). DoconChain may be temporarily unavailable.');
-      try { data = JSON.parse(raw); } catch(e) { throw new Error('Unexpected response (HTTP ' + r.status + '). Please try again.'); }
+      throw new Error('Server error (HTTP ' + r.status + '). Please try again.');
     }
     if (!r.ok) {
-      _resetBtn(data.detail || data.message || ('DoconChain error ' + r.status + '. Please try again.'));
-      return;
+      throw new Error(data.detail || data.message || 'Failed to generate link');
     }
 
     const link = data.link;
     if (!link) {
-      _resetBtn('No link returned from DoconChain. Please try again.');
+      throw new Error('No link returned from server');
+    }
+
+    // Validate — short links from DC don't have tokens in URL (they're embedded in the redirect)
+    // Accept any doconchain.com link or any link with token params
+    const isDcLink = link.includes('doconchain.com');
+    const hasToken = link.includes('api_token=') || link.includes('token=');
+    if (!isDcLink && !hasToken) {
+      if (preTab) preTab.close();
+      if (btn) { btn.disabled = false; btn.innerHTML = origHTML; btn.style.opacity = ''; }
+      qlAlert('Invalid Link', 'The generated link is not a valid DoconChain URL. Please try again.', '<i class="hgi-stroke hgi-pen-tool-01" style="color:#a78bfa"></i>');
       return;
     }
 
-    // Show refresh status button (visible to all participants after plotting)
-    var _rsb = document.getElementById('refresh-status-btn-' + projectUuid);
-    if (_rsb) _rsb.style.display = 'flex';
+    // Navigate the pre-opened tab to the validated link
+    if (preTab && !preTab.closed) {
+      preTab.location.href = link;
+    } else {
+      window.open(link, '_blank');
+    }
 
-    // Auto-add ENP as the last signer chip (they always sign last as notary)
-    if (_sessionInfo && _sessionInfo.enp_email && window._isEnp) {
-      const _enpChipExists = document.querySelector(
-        '#signers-' + projectUuid + ' [data-email="' + (_sessionInfo.enp_email || '').toLowerCase() + '"]'
+    // Update button
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="hgi-stroke hgi-tick-01" style="font-size:.82rem;"></i> Fields Plotted — Re-open';
+      btn.style.background = 'rgba(16,185,129,.1)';
+      btn.style.borderColor = 'rgba(16,185,129,.3)';
+      btn.style.color = '#34d399';
+      btn.style.opacity = '';
+      // Allow re-open: clicking generates a fresh link again
+      btn.onclick = function() { openPlotSignature(projectUuid); };
+    }
+
+    // Show sign document + refresh buttons
+    const signDocBtn = document.getElementById('sign-doc-btn-' + projectUuid);
+    if (signDocBtn) signDocBtn.style.display = 'flex';
+    const refreshBtn = document.getElementById('refresh-status-btn-' + projectUuid);
+    if (refreshBtn) refreshBtn.style.display = 'flex';
+
+    // Show confirmation dialog AFTER opening — ask if they've plotted
+    // Small delay so new tab can load, then show dialog in parent window
+    setTimeout(async function() {
+      window.focus(); // bring parent window back to focus before showing dialog
+      const plotDone = await qlConfirm(
+        'Signature Fields Plotted?',
+        'The DoconChain editor has opened in a new tab.<br><br>Please place the signature fields for all signers, then <strong>save</strong> before closing the tab.<br><br>Once done, click <strong>Yes, I\'ve Plotted</strong> below.',
+        'Yes, I\'ve Plotted',
+        '<i class="hgi-stroke hgi-pen-tool-01" style="color:#a78bfa"></i>'
       );
-      if (!_enpChipExists) {
-        // Find highest existing signing_order and place ENP after
-        const _existingChips = Array.from(
-          (document.getElementById('signers-' + projectUuid) || {querySelectorAll: () => []}).querySelectorAll('[data-signing-order]')
-        );
-        const _maxOrder = _existingChips.reduce(function(m, c) { return Math.max(m, parseInt(c.dataset.signingOrder) || 0); }, 0);
-        const _enpName = (_sessionInfo.enp_name || 'ENP').split(' ');
-        renderSignerChip(projectUuid, {
-          email:         _sessionInfo.enp_email,
-          first_name:    _enpName[0] || 'ENP',
-          last_name:     _enpName.slice(1).join(' ') || '',
-          signer_role:   'Signer',
-          signing_order: _maxOrder + 1,
-          _is_enp:       true,
-        });
+      if (!plotDone) {
+        // User cancelled — reset button so they can re-open
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = origHTML;
+          btn.style.background = '';
+          btn.style.borderColor = '';
+          btn.style.color = '';
+          btn.style.opacity = '';
+          btn.onclick = function() { openPlotSignature(projectUuid); };
+        }
+        const signDocBtn2 = document.getElementById('sign-doc-btn-' + projectUuid);
+        if (signDocBtn2) signDocBtn2.style.display = 'none';
+        const refreshBtn2 = document.getElementById('refresh-status-btn-' + projectUuid);
+        if (refreshBtn2) refreshBtn2.style.display = 'none';
       }
-    }
-
-    // Start auto-polling for signer status updates (use APT_ID global)
-    var _plotAptId = (typeof APT_ID !== 'undefined' && APT_ID) ? APT_ID : (_sessionInfo && _sessionInfo.apt_id) || '';
-    if (_plotAptId) _startSignerStatusPolling(projectUuid, _plotAptId);
-
-    // Mark workflow state now (API confirmed success)
-    if (_sessionInfo && Array.isArray(_sessionInfo.session_documents)) {
-      _sessionInfo.session_documents.forEach(function(d) {
-        if ((d.project_uuid || d.doconchain_project_uuid) === projectUuid) {
-          d.dc_workflow_state = 'plotting';
-        }
-      });
-    }
-
-    // Show signer guide toast before opening
-    var clientEmail = (_sessionInfo && _sessionInfo.client_email) || '';
-    // Link obtained - update button to "Plotting..." state
-    if (_plotBtn) {
-      _plotBtn.disabled = true;
-      _plotBtn.style.opacity = '1';
-      _plotBtn.style.cursor = 'not-allowed';
-      _plotBtn.style.background = 'rgba(107,114,128,.15)';
-      _plotBtn.style.borderColor = 'rgba(107,114,128,.35)';
-      _plotBtn.style.color = '#9ca3af';
-      _plotBtn.innerHTML = '<i class="hgi-stroke hgi-loading-03" style="font-size:.82rem;animation:spin .9s linear infinite;"></i> Plotting...';
-      _plotBtn._origHTML = '<i class="hgi-stroke hgi-pen-tool-01" style="font-size:.82rem;"></i> Plot Signature Fields';
-      _plotBtn._projectUuid = projectUuid;
-    }
-
-    // Open DoconChain plot interface
-    // NOTE: do NOT set _plottingDone here - the button locks green only after
-    // the plotting_done LiveKit broadcast confirms the ENP actually plotted fields.
-    // Open the DoconChain plot interface
-    openDcModal(link, 'Plot Signature Fields');
-
-    // Poll for popup close - handles BOTH programmatic closeDcModal()
-    // AND user closing with browser X button (which never fires closeDcModal).
-    if (_plotAptId) {
-      var _plotPopupPollId = null;
-      var _plotClosedHandled = false;
-
-      function _handlePlotWindowClosed() {
-        if (_plotClosedHandled) return;
-        _plotClosedHandled = true;
-        if (_plotPopupPollId) { clearInterval(_plotPopupPollId); _plotPopupPollId = null; }
-        // Restore closeDcModal to original
-        if (window.closeDcModal === _plotCloseDcModalOverride) {
-          window.closeDcModal = _origCloseDcModal;
-        }
-
-        var _pb = document.getElementById('plot-sign-btn-' + projectUuid);
-        if (!window._plottingDone[projectUuid]) {
-          // Window closed without confirmed plotting - show dialog
-          qlConfirm(
-            'Did you finish plotting?',
-            'Did you successfully place all signature fields in DoconChain before closing?<br><br><span style="font-size:.8rem;color:#8b949e;">If DoconChain showed "Session Ended", click <strong style="color:#a78bfa">Cancel</strong> - the button resets so you can reopen and log back in.</span>',
-            'Yes, done plotting'
-          ).then(function(confirmed) {
-            if (confirmed) {
-              if (!window._plottingDone) window._plottingDone = {};
-              window._plottingDone[projectUuid] = true;
-              _lockPlotButtonDone(projectUuid);
-              if (_room && _room.state === 'connected') {
-                var _msg = JSON.stringify({ type: 'plotting_done', project_uuid: projectUuid, enp_email: (_sessionInfo && _sessionInfo.enp_email) || '' });
-                try { _room.localParticipant.publishData(new TextEncoder().encode(_msg), { reliable: true }); } catch(e) {}
-              }
-              refreshSignerStatus(projectUuid, _plotAptId, true);
-              setTimeout(_syncSessionState, 2000);
-            } else {
-              // No - restore button to original purple enabled state
-              if (_pb) {
-                _pb.disabled = false;
-                _pb.style.opacity = '1';
-                _pb.style.cursor = 'pointer';
-                _pb.style.background = 'rgba(167,139,250,.1)';
-                _pb.style.borderColor = 'rgba(167,139,250,.3)';
-                _pb.style.color = '#a78bfa';
-                _pb.innerHTML = '<i class="hgi-stroke hgi-pen-tool-01" style="font-size:.82rem;"></i> Plot Signature Fields';
-                _pb.title = 'Plot signature fields in DoconChain';
-                _pb.onmouseover = function() { this.style.background='rgba(167,139,250,.22)'; };
-                _pb.onmouseout  = function() { this.style.background='rgba(167,139,250,.1)'; };
-                _pb.onclick = function() { openPlotSignature(projectUuid); };
-              }
-              if (_sessionInfo && Array.isArray(_sessionInfo.session_documents)) {
-                _sessionInfo.session_documents.forEach(function(d) {
-                  if ((d.project_uuid || d.doconchain_project_uuid) === projectUuid) { d.dc_workflow_state = null; }
-                });
-              }
-            }
-          });
-        }
-        setTimeout(function() { refreshSignerStatus(projectUuid, _plotAptId, true); }, 1000);
-      }
-
-      // Override closeDcModal so programmatic close also triggers the dialog
-      var _origCloseDcModal = window.closeDcModal;
-      function _plotCloseDcModalOverride() {
-        _origCloseDcModal();
-        window.closeDcModal = _origCloseDcModal;
-        _handlePlotWindowClosed();
-      }
-      window.closeDcModal = _plotCloseDcModalOverride;
-
-      // Poll _dcPopupRef.closed every 600ms - catches browser X button close
-      _plotPopupPollId = setInterval(function() {
-        if (typeof _dcPopupRef !== 'undefined' && _dcPopupRef && _dcPopupRef.closed) {
-          _handlePlotWindowClosed();
-        }
-        // Also stop polling if plotting was confirmed via LiveKit broadcast
-        if (window._plottingDone && window._plottingDone[projectUuid]) {
-          if (_plotPopupPollId) { clearInterval(_plotPopupPollId); _plotPopupPollId = null; }
-        }
-        // If popup is open but redirected to login, silently refresh the plot link
-        try {
-          if (typeof _dcPopupRef !== 'undefined' && _dcPopupRef && !_dcPopupRef.closed) {
-            var _popupHref = _dcPopupRef.location.href;
-            if (_popupHref && _popupHref.indexOf('action=login') !== -1) {
-              if (_plotPopupPollId) { clearInterval(_plotPopupPollId); _plotPopupPollId = null; }
-              _autoRefreshPlotLink(projectUuid);
-            }
-          }
-        } catch(e) { /* cross-origin - cannot inspect popup URL */ }
-      }, 600);
-    }
+    }, 1200);
 
   } catch(err) {
-    _resetBtn(err.message || 'Could not open. Please try again.');
+    if (preTab && !preTab.closed) preTab.close();
+    if (btn) { btn.disabled = false; btn.innerHTML = origHTML; btn.style.opacity = ''; }
+    qlAlert('Error', err.message || 'Could not generate plot link. Please try again.', '<i class="hgi-stroke hgi-pen-tool-01" style="color:#a78bfa"></i>');
   }
-}
-
-async function _autoRefreshPlotLink(projectUuid) {
-  try { await fetch('/api/auth/refresh', { method: 'POST', credentials: 'include' }); } catch(e) {}
-  try {
-    const r = await fetch(`/api/sessions/plot-link/${encodeURIComponent(projectUuid)}`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-    });
-    if (!r.ok) return;
-    const data = await r.json();
-    if (data && data.link) openDcModal(data.link, 'Plot Signature Fields');
-  } catch(e) {}
 }
 
 function _copyEmail(email, btnEl) {
@@ -3185,6 +3097,16 @@ async function openSignDocument(projectUuid, aptId) {
       throw new Error('No signing links could be generated. Ensure signers are assigned to this document.');
     }
 
+    // Detect draft/plot links — these contain api_token= and are NOT signing links
+    const draftLinks = okLinks.filter(function(s) { return s.link && s.link.includes('api_token='); });
+    if (draftLinks.length > 0) {
+      qlAlert('Plot Signature Fields First',
+        'The document signature fields have not been set up yet. Please click "Plot Signature Fields" to set up where signers should sign, then try again.',
+        '<i class="hgi-stroke hgi-pen-tool-01" style="color:#a78bfa"></i>');
+      if (btn) { btn.disabled = false; btn.innerHTML = origHTML; }
+      return;
+    }
+
     // ENP opens all links; Client only opens their own
     var linksToOpen = okLinks;
     if (!window._isEnp) {
@@ -3217,7 +3139,14 @@ async function openSignDocument(projectUuid, aptId) {
     }
   } catch(err) {
     if (btn) { btn.disabled = false; btn.innerHTML = origHTML; }
-    qlAlert('Signing Error', err.message || 'Could not generate signing links. Please try again.', '<i class="hgi-stroke hgi-signature" style="color:#a78bfa"></i>');
+    const _errMsg = err.message || '';
+    if (_errMsg.includes('not been plotted') || _errMsg.includes('Plot Signature Fields')) {
+      qlAlert('Plot Signature Fields First',
+        '⚠️ Please plot signature fields first. Click the \'Plot Signature Fields\' button above to set up where signers should sign, then try again.',
+        '<i class="hgi-stroke hgi-pen-tool-01" style="color:#a78bfa"></i>');
+    } else {
+      qlAlert('Signing Error', _errMsg || 'Could not generate signing links. Please try again.', '<i class="hgi-stroke hgi-signature" style="color:#a78bfa"></i>');
+    }
   }
 }
 
@@ -3299,7 +3228,13 @@ async function refreshSignerStatus(projectUuid, aptId, silent) {
     const r = await fetch('/api/sessions/' + aptId + '/documents/' + encodeURIComponent(projectUuid) + '/signer-status', {
       credentials: 'include',
     });
-    if (!r.ok) { if (!silent) throw new Error('HTTP ' + r.status); return; }
+    if (!r.ok) {
+      // Even on transient failure, recompute badges from current DOM state so
+      // the Sign button visibility doesn't get stuck at a stale value.
+      _refreshSignerBadges(projectUuid);
+      if (!silent) throw new Error('HTTP ' + r.status);
+      return;
+    }
     const data = await r.json();
     const statuses = data.signer_statuses || [];
 
@@ -3404,6 +3339,12 @@ async function _syncSessionState() {
         if (_rsb) _rsb.style.display = 'flex';
       }
 
+      // Show meatball menu when workflow is completed
+      if (doc.dc_workflow_state === 'completed') {
+        var _mbBtn = document.getElementById('meatball-btn-' + uuid);
+        if (_mbBtn) _mbBtn.style.display = 'flex';
+      }
+
       // Refresh signer chips from latest signers list
       if (Array.isArray(doc.signers) && doc.signers.length > 0) {
         var container = document.getElementById('signers-' + uuid);
@@ -3434,13 +3375,84 @@ async function _syncSessionState() {
   }
 }
 
+// ── Meatball menu ─────────────────────────────────────────────────────────────
+function toggleMeatball(e, menuId) {
+  e.stopPropagation();
+  document.querySelectorAll('[id^="meatball-menu-"]').forEach(function(m) {
+    if (m.id !== menuId) m.style.display = 'none';
+  });
+  var menu = document.getElementById(menuId);
+  if (menu) menu.style.display = menu.style.display === 'block' ? 'none' : 'block';
+}
+if (!window._meatballListenerAdded) {
+  window._meatballListenerAdded = true;
+  document.addEventListener('click', function() {
+    document.querySelectorAll('[id^="meatball-menu-"]').forEach(function(m) {
+      m.style.display = 'none';
+    });
+  });
+}
+
+async function fetchVaultDoc(projectUuid, action) {
+  try {
+    const res = await fetch('/api/vault-doc/' + encodeURIComponent(projectUuid), { credentials: 'include' });
+    if (!res.ok) {
+      const err = await res.json().catch(function() { return {}; });
+      const detail = err.detail || {};
+      const reason = typeof detail === 'object' ? detail.reason : null;
+      if (reason === 'finalizing') {
+        alert('Document is being finalized by DoconChain. Please wait a moment and try again.');
+      } else if (reason === 'not_completed') {
+        alert('Document not yet complete. Please check signing status.');
+      } else {
+        alert(typeof detail === 'string' ? detail : (detail.message || 'Document not available yet. Please try again later.'));
+      }
+      return;
+    }
+    const data = await res.json();
+    const url = data.view_url || data.download_url || '';
+    if (!url) { alert('No document URL available.'); return; }
+    if (action === 'view') {
+      window.open(url, '_blank', 'noopener');
+    } else {
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = data.file_name || 'notarized-document.pdf';
+      a.target = '_blank';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+  } catch(err) {
+    alert('Failed to fetch document: ' + err.message);
+  }
+}
+
 function _startSignerStatusPolling(projectUuid, aptId) {
   if (_signerPollIntervals[projectUuid]) return; // already polling
-  // Fire once immediately, then every 5s
+  // Fire once immediately, then every 3s while session is open.
+  // 3s feels real-time without hammering DoconChain. Each call hits
+  // /signer-status which proxies to DC live (no server cache).
   refreshSignerStatus(projectUuid, aptId, true);
   _signerPollIntervals[projectUuid] = setInterval(function() {
     refreshSignerStatus(projectUuid, aptId, true); // silent=true
-  }, 5000);
+  }, 3000);
+
+  // Bonus: when the tab regains focus, refresh immediately. Browsers throttle
+  // setInterval to ~1/min when the tab is backgrounded, so this catches the
+  // case where the ENP switched away and came back to find a stale UI.
+  if (!window._signerPollVisHandlerInstalled) {
+    window._signerPollVisHandlerInstalled = true;
+    document.addEventListener('visibilitychange', function() {
+      if (document.hidden) return;
+      Object.keys(_signerPollIntervals).forEach(function(uuid) {
+        // Find aptId for this uuid — there's only one apt per page so APT_ID is fine
+        if (typeof APT_ID !== 'undefined' && APT_ID) {
+          refreshSignerStatus(uuid, APT_ID, true);
+        }
+      });
+    });
+  }
 }
 
 async function _markCurrentUserSigned(projectUuid, aptId) {
@@ -3697,6 +3709,264 @@ document.getElementById('ql-modal-overlay').addEventListener('click', function(e
 });
 </script>
 
+
+<!-- ─── CHAT FAB ──────────────────────────────────────────────────────────────── -->
+<button id="chat-fab" title="Session Chat" style="
+  position:fixed;right:24px;bottom:24px;z-index:1000;
+  width:52px;height:52px;border-radius:50%;border:none;cursor:pointer;
+  background:var(--teal,#00b4d8);color:#fff;
+  display:flex;align-items:center;justify-content:center;
+  box-shadow:0 4px 16px rgba(0,180,216,.4);
+  transition:transform .15s,box-shadow .15s;
+">
+  <i class="hgi-stroke hgi-message-01" style="font-size:1.35rem;pointer-events:none;"></i>
+  <span id="chat-badge" style="
+    position:absolute;top:-4px;right:-4px;
+    background:#ef4444;color:#fff;border-radius:999px;
+    min-width:18px;height:18px;padding:0 4px;
+    font-size:.65rem;font-weight:700;line-height:1;
+    display:none;align-items:center;justify-content:center;
+  "></span>
+</button>
+
+<!-- ─── CHAT PANEL ────────────────────────────────────────────────────────────── -->
+<div id="chat-panel" style="
+  position:fixed;right:24px;bottom:88px;
+  width:340px;height:460px;
+  background:var(--surface,#1a1d2e);border:1px solid rgba(255,255,255,.1);
+  border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.45);
+  display:none;flex-direction:column;overflow:hidden;z-index:999;
+">
+  <div style="
+    display:flex;align-items:center;justify-content:space-between;
+    padding:.75rem 1rem;border-bottom:1px solid rgba(255,255,255,.08);
+    background:rgba(0,180,216,.1);flex-shrink:0;
+  ">
+    <div style="display:flex;align-items:center;gap:.5rem;">
+      <i class="hgi-stroke hgi-message-01" style="color:var(--teal,#00b4d8);font-size:1rem;"></i>
+      <span style="font-weight:600;font-size:.9rem;color:var(--fg,#e2e8f0);">Session Chat</span>
+      <span id="chat-status-dot" style="width:8px;height:8px;border-radius:50%;background:#6b7280;display:inline-block;margin-left:.15rem;transition:background .3s;flex-shrink:0;" title="Connecting…"></span>
+      <span id="chat-status-label" style="font-size:.67rem;color:#eab308;display:none;">Reconnecting…</span>
+    </div>
+    <button id="chat-close" style="
+      background:none;border:none;cursor:pointer;color:var(--muted,#8892a4);
+      display:flex;align-items:center;justify-content:center;padding:.25rem;
+    " title="Close">
+      <i class="hgi-stroke hgi-cancel-01" style="font-size:.95rem;"></i>
+    </button>
+  </div>
+  <div id="chat-body" style="
+    flex:1;overflow-y:auto;padding:.75rem;
+    display:flex;flex-direction:column;gap:.5rem;
+  ">
+    <div id="chat-empty" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--muted,#8892a4);text-align:center;padding:2rem .5rem;pointer-events:none;">
+      <i class="hgi-stroke hgi-message-01" style="font-size:2rem;opacity:.25;margin-bottom:.6rem;display:block;"></i>
+      <span style="font-size:.82rem;line-height:1.6;">No messages yet.<br>Start the conversation!</span>
+    </div>
+  </div>
+  <div style="
+    display:flex;align-items:flex-end;gap:.5rem;
+    padding:.65rem .75rem;border-top:1px solid rgba(255,255,255,.08);flex-shrink:0;
+  ">
+    <textarea id="chat-input" rows="1" placeholder="Type a message…" style="
+      flex:1;resize:none;overflow-y:auto;
+      background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);
+      border-radius:8px;padding:.45rem .7rem;color:var(--fg,#e2e8f0);
+      font-size:.84rem;font-family:inherit;line-height:1.45;max-height:96px;
+      outline:none;transition:border-color .15s;
+    " oninput="this.style.height='';this.style.height=Math.min(this.scrollHeight,96)+'px'"></textarea>
+    <button id="chat-send-btn" style="
+      background:var(--teal,#00b4d8);border:none;border-radius:8px;
+      width:36px;height:36px;cursor:pointer;color:#fff;flex-shrink:0;
+      display:flex;align-items:center;justify-content:center;
+    " title="Send">
+      <i class="hgi-stroke hgi-sent" style="font-size:.9rem;"></i>
+    </button>
+  </div>
+</div>
+
+<style>
+#chat-fab:hover { transform:scale(1.08); box-shadow:0 6px 20px rgba(0,180,216,.55); }
+.chat-msg { display:flex; flex-direction:column; max-width:82%; }
+.chat-msg-self { align-self:flex-end; align-items:flex-end; }
+.chat-msg-sender { font-size:.69rem; color:var(--muted,#8892a4); margin-bottom:.18rem; display:flex; align-items:center; gap:.3rem; flex-wrap:wrap; }
+.chat-msg-bubble {
+  background:rgba(255,255,255,.08); border-radius:12px 12px 12px 2px;
+  padding:.42rem .68rem; font-size:.83rem; color:var(--fg,#e2e8f0);
+  line-height:1.45; word-break:break-word; white-space:pre-wrap;
+}
+.chat-msg-self .chat-msg-bubble {
+  background:rgba(0,180,216,.22); border-radius:12px 12px 2px 12px;
+}
+.chat-msg-time { font-size:.64rem; color:var(--muted,#8892a4); margin-top:.12rem; }
+#chat-input:focus { border-color:rgba(0,180,216,.5); }
+.chat-role-badge { display:inline-block; font-size:.58rem; font-weight:700; padding:.07rem .32rem; border-radius:4px; letter-spacing:.04em; line-height:1.4; }
+.chat-role-badge-enp { background:rgba(0,180,216,.18); color:var(--teal,#00b4d8); }
+.chat-role-badge-client { background:rgba(148,163,184,.13); color:var(--muted,#8892a4); }
+@media (max-width: 480px) {
+  #chat-panel { width:calc(100vw - 32px) !important; right:16px !important; }
+  #chat-fab { bottom:80px !important; }
+}
+</style>
+
+<script>
+// ─── CHAT ────────────────────────────────────────────────────────────────────
+let _chatWs        = null;
+let _chatOpen      = false;
+let _chatUnread    = 0;
+let _chatUserId    = '';
+let _chatSessionId = '';
+
+function initChat(userId, userName, userRole, sessionId) {
+  _chatUserId    = userId;
+  _chatSessionId = sessionId;
+
+  document.getElementById('chat-fab').addEventListener('click', _toggleChat);
+  document.getElementById('chat-close').addEventListener('click', _closeChat);
+  document.getElementById('chat-send-btn').addEventListener('click', _sendChat);
+  document.getElementById('chat-input').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); _sendChat(); }
+  });
+
+  _connectChatWs();
+}
+
+function _connectChatWs() {
+  if (!_chatSessionId) return;
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  let url = proto + '//' + location.host + '/ws/chat/' + encodeURIComponent(_chatSessionId);
+  if (GUEST_TOKEN) url += '?token=' + encodeURIComponent(GUEST_TOKEN);
+
+  _chatWs = new WebSocket(url);
+
+  _chatWs.onopen = function() {
+    _setChatStatus(true);
+  };
+
+  _chatWs.onmessage = function(e) {
+    let data;
+    try { data = JSON.parse(e.data); } catch(_) { return; }
+    if (data.type === 'history') {
+      (data.messages || []).forEach(_appendChatMsg);
+    } else if (data.type === 'message') {
+      _appendChatMsg(data);
+      if (!_chatOpen && data.sender_id !== _chatUserId) {
+        _chatUnread++;
+        _updateChatBadge();
+      }
+    }
+  };
+
+  _chatWs.onclose = function() {
+    _setChatStatus(false);
+    setTimeout(function() { if (_chatSessionId) _connectChatWs(); }, 3000);
+  };
+
+  _chatWs.onerror = function(e) {
+    console.warn('[QL Chat] WS error:', e);
+  };
+}
+
+function _toggleChat() {
+  if (_chatOpen) _closeChat(); else _openChat();
+}
+
+function _openChat() {
+  _chatOpen = true;
+  document.getElementById('chat-panel').style.display = 'flex';
+  _chatUnread = 0;
+  _updateChatBadge();
+  _scrollChatBottom();
+  setTimeout(function() { document.getElementById('chat-input').focus(); }, 50);
+}
+
+function _closeChat() {
+  _chatOpen = false;
+  document.getElementById('chat-panel').style.display = 'none';
+}
+
+function _updateChatBadge() {
+  var badge = document.getElementById('chat-badge');
+  if (_chatUnread > 0) {
+    badge.textContent = _chatUnread > 9 ? '9+' : String(_chatUnread);
+    badge.style.display = 'flex';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+function _setChatStatus(connected) {
+  var dot   = document.getElementById('chat-status-dot');
+  var label = document.getElementById('chat-status-label');
+  if (!dot) return;
+  if (connected) {
+    dot.style.background = '#22c55e';
+    dot.title = 'Connected';
+    if (label) label.style.display = 'none';
+  } else {
+    dot.style.background = '#eab308';
+    dot.title = 'Reconnecting…';
+    if (label) label.style.display = '';
+  }
+}
+
+function _appendChatMsg(msg) {
+  var body = document.getElementById('chat-body');
+  // Hide empty state on first message
+  var empty = document.getElementById('chat-empty');
+  if (empty) empty.style.display = 'none';
+
+  var isSelf = (msg.sender_id === _chatUserId);
+  var ts = '';
+  if (msg.created_at) {
+    try { ts = new Date(msg.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}); } catch(_) {}
+  }
+  // Role badge (shown only on others' messages)
+  var badge = '';
+  if (!isSelf) {
+    var role = (msg.sender_role || '').toLowerCase();
+    if (role === 'enp') {
+      badge = '<span class="chat-role-badge chat-role-badge-enp">ENP</span>';
+    } else if (role === 'client') {
+      badge = '<span class="chat-role-badge chat-role-badge-client">Client</span>';
+    }
+  }
+  var el = document.createElement('div');
+  el.className = 'chat-msg' + (isSelf ? ' chat-msg-self' : '');
+  el.innerHTML =
+    (!isSelf ? '<div class="chat-msg-sender">' + _esc(msg.sender_name) + badge + '</div>' : '') +
+    '<div class="chat-msg-bubble">' + _esc(msg.content) + '</div>' +
+    '<div class="chat-msg-time">' + ts + '</div>';
+  body.appendChild(el);
+  _scrollChatBottom();
+}
+
+function _scrollChatBottom() {
+  var body = document.getElementById('chat-body');
+  body.scrollTop = body.scrollHeight;
+}
+
+function _sendChat() {
+  var input = document.getElementById('chat-input');
+  var content = input.value.trim();
+  if (!content) return;
+  if (!_chatWs || _chatWs.readyState !== WebSocket.OPEN) {
+    console.warn('[QL Chat] WS not open, buffering not implemented');
+    return;
+  }
+  _chatWs.send(JSON.stringify({ content: content }));
+  input.value = '';
+  input.style.height = '';
+}
+
+function _esc(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+</script>
 
 <script>
 var _dcPopupRef = null;
