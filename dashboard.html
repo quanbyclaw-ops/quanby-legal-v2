@@ -61,6 +61,23 @@
   .logo-text { font-size: 1.1rem; font-weight: 700; color: #e8eaf2; letter-spacing: -0.02em; }
   .nav-links { display: flex; gap: 1.5rem; align-items: center; flex: 1; justify-content: center; }
   .nav-links a { color: var(--muted); text-decoration: none; font-size: 0.85rem; font-weight: 500; padding: 0.4rem 0.75rem; border-radius: 6px; transition: background 0.15s, color 0.15s; white-space: nowrap; }
+
+  /* Hamburger button — hidden on desktop, shown on mobile via media query below */
+  .nav-toggle {
+    display: none;
+    background: none;
+    border: 1px solid rgba(255,255,255,0.12);
+    color: var(--text);
+    width: 40px; height: 40px;
+    border-radius: 8px;
+    cursor: pointer;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.05rem;
+    flex-shrink: 0;
+  }
+  .nav-toggle:hover { background: rgba(255,255,255,0.06); }
+  .nav-toggle:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
   .nav-links a:hover { background: rgba(255,255,255,0.06); color: var(--text); }
   .nav-links a.active { background: rgba(255,255,255,0.08); color: var(--text); }
   .nav-user { display: flex; align-items: center; gap: 0.625rem; position: relative; cursor: pointer; }
@@ -636,28 +653,127 @@
   .past-appts-empty i { font-size: 1.75rem; display: block; margin-bottom: 0.625rem; opacity: 0.35; }
 
   /* ── RESPONSIVE ── */
+  /* ══ MOBILE RESPONSIVENESS ══
+     Breakpoints (mobile-first additive):
+       ≤ 900px: hamburger menu, looser nav
+       ≤ 768px: tablet — grids halve, hero stacks
+       ≤ 600px: large phone — ENP stats 2x2, action grid 1col
+       ≤ 480px: phone — 1-col, smaller padding, appointment row stacks
+  */
+
+  /* ── ≤ 900px: collapse nav into hamburger drawer ── */
+  @media (max-width: 900px) {
+    .nav-content { padding: 0 1rem; gap: 0.75rem; }
+    .logo-text { font-size: 1rem; }
+    .nav-toggle { display: inline-flex; }
+
+    /* Drawer state: nav-links is repositioned as a slide-down panel.
+       top:64px = nav height; the nav itself sits at top:0 sticky. */
+    .nav-links {
+      position: fixed;
+      top: 64px;
+      left: 0; right: 0;
+      max-height: calc(100vh - 64px);
+      overflow-y: auto;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 0.25rem;
+      padding: 0.75rem 1rem 1.25rem;
+      background: rgba(5,6,15,0.98);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      box-shadow: 0 12px 32px rgba(0,0,0,0.5);
+      transform: translateY(-110%);
+      visibility: hidden;
+      transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1), visibility 0s linear 0.22s;
+      z-index: 99;
+      display: flex;  /* needed because nav-links default is flex; override is-open below */
+    }
+    .nav-links.open {
+      transform: translateY(0);
+      visibility: visible;
+      transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1), visibility 0s;
+    }
+    .nav-links a {
+      width: 100%;
+      padding: 0.85rem 1rem;
+      font-size: 0.95rem;
+      border-radius: 8px;
+    }
+    body.nav-open { overflow: hidden; }
+
+    .nav-user-name { display: none; }
+  }
+
+  /* ── ≤ 768px: tablet ── */
   @media (max-width: 768px) {
+    .dash-main { padding: 1.5rem 1.25rem 3rem; }
     .stats-row { grid-template-columns: 1fr 1fr; }
     .client-quick-grid { grid-template-columns: 1fr; }
     .client-stats-row { grid-template-columns: 1fr 1fr; }
     .hero-strip { flex-direction: column; align-items: flex-start; padding: 1.5rem; }
-    .hero-right { align-self: flex-start; }
+    .hero-right { align-self: stretch; }
+    .hero-name { font-size: 1.2rem; }
     .kyc-grid { grid-template-columns: 1fr 1fr; }
-    .client-welcome { flex-direction: column; align-items: flex-start; padding: 1.5rem; }
-    .client-welcome-right { align-self: flex-start; }
+    .client-welcome { flex-direction: column; align-items: flex-start; padding: 1.5rem; gap: 1rem; }
+    .client-welcome-right { align-self: flex-start; text-align: left; }
+    .services-grid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+    .cert-actions .btn-gold, .cert-actions .btn-outline,
+    .cert-actions .btn-purple, .cert-actions .btn-teal,
+    .cert-actions .btn-danger { font-size: 0.82rem; }
   }
-  @media (max-width: 480px) {
-    .dash-main { padding: 1.25rem 1rem 3rem; }
+
+  /* ── ≤ 600px: large phone (landscape phone, small tablet portrait) ── */
+  @media (max-width: 600px) {
+    .dash-main { padding: 1.25rem 1rem 2.5rem; }
     .dash-section { padding: 1.25rem 1.125rem; }
-    .hero-strip { padding: 1.25rem; }
-    .hero-left { flex-direction: column; align-items: flex-start; }
-    .kyc-grid { grid-template-columns: 1fr; }
+    .hero-strip { padding: 1.25rem; gap: 1rem; }
+    .hero-name { font-size: 1.1rem; }
+    .hero-email { font-size: 0.78rem; word-break: break-all; }
+    .stats-row { grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+    .stat-card { padding: 1rem; }
+    .stat-value { font-size: 0.95rem; }
+    .services-grid { grid-template-columns: 1fr; gap: 0.75rem; }
+    .action-card { padding: 1.25rem; }
+    .past-appts-hdr { padding: 0.875rem 1.125rem; }
+  }
+
+  /* ── ≤ 480px: phone ── */
+  @media (max-width: 480px) {
+    .dash-main { padding: 1rem 0.875rem 2.5rem; }
+    .dash-section { padding: 1.125rem 1rem; border-radius: 12px; }
+    .hero-strip { padding: 1.125rem; border-radius: 14px; }
+    .hero-left { flex-direction: column; align-items: flex-start; gap: 0.875rem; }
+    .hero-avatar { width: 48px; height: 48px; font-size: 1.1rem; }
+    .stats-row { grid-template-columns: 1fr; gap: 0.625rem; }
+    .kyc-grid { grid-template-columns: 1fr; gap: 0.875rem; }
     .cert-actions { flex-direction: column; }
+    .cert-actions > * { width: 100%; justify-content: center; }
     .services-grid { grid-template-columns: 1fr; }
     .client-stats-row { grid-template-columns: 1fr; }
-    .client-welcome { padding: 1.25rem; }
-    .client-welcome-left { flex-direction: column; align-items: flex-start; }
+    .client-welcome { padding: 1.125rem; border-radius: 14px; }
+    .client-welcome-left { flex-direction: column; align-items: flex-start; gap: 0.75rem; }
+    .client-avatar { width: 52px; height: 52px; font-size: 1.05rem; }
+
+    /* Appointment row stacks vertically on phones so badge doesn't crowd date */
+    .appt-row { padding: 0.875rem 1.125rem; gap: 0.625rem; align-items: flex-start; }
+    .appt-info { width: 100%; }
+    .appt-with { white-space: normal; line-height: 1.3; font-size: 0.88rem; }
+    .appt-status-badge { align-self: flex-start; }
+
+    /* Action card text gets a bit smaller on tiny screens */
+    .action-title { font-size: 0.92rem; }
+    .action-desc { font-size: 0.76rem; }
+
+    /* Make sure all tap targets are ≥ 44px */
+    .btn-gold, .btn-outline, .btn-teal, .btn-purple, .btn-danger {
+      min-height: 44px;
+      padding: 0.65rem 1rem;
+    }
   }
+
+  /* iOS safe area for bottom of pages with fixed footers (none here, but sets the standard) */
+  body { padding-bottom: env(safe-area-inset-bottom, 0); }
 </style>
 <script src="https://hv-camera-web-sg.s3-ap-southeast-1.amazonaws.com/hyperverge-web-sdk@10.3.0/src/sdk.min.js"></script>
 </head>
@@ -672,6 +788,14 @@
     <div class="nav-links" id="dash-nav-links">
       <!-- role-aware links injected by JS -->
     </div>
+
+    <button class="nav-toggle" id="nav-toggle" aria-label="Open navigation menu" aria-expanded="false" aria-controls="dash-nav-links" onclick="event.stopPropagation();toggleMobileNav()">
+      <svg id="nav-toggle-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <line x1="4" y1="7" x2="20" y2="7"/>
+        <line x1="4" y1="12" x2="20" y2="12"/>
+        <line x1="4" y1="17" x2="20" y2="17"/>
+      </svg>
+    </button>
 
     <div class="nav-user" id="nav-user-wrap" onclick="toggleDashMenu()">
       <img class="nav-user-avatar" id="dash-nav-avatar" src="" alt="" style="display:none;">
@@ -1507,6 +1631,65 @@ document.addEventListener('click', function(e) {
   const menu = document.getElementById('dash-nav-menu');
   if (menu && wrap && !wrap.contains(e.target)) menu.style.display = 'none';
 });
+
+// ── Mobile hamburger nav drawer ──
+const _NAV_TOGGLE_HAMBURGER_SVG =
+  '<svg id="nav-toggle-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+  '<line x1="4" y1="7" x2="20" y2="7"/>' +
+  '<line x1="4" y1="12" x2="20" y2="12"/>' +
+  '<line x1="4" y1="17" x2="20" y2="17"/>' +
+  '</svg>';
+const _NAV_TOGGLE_CLOSE_SVG =
+  '<svg id="nav-toggle-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+  '<line x1="6" y1="6" x2="18" y2="18"/>' +
+  '<line x1="6" y1="18" x2="18" y2="6"/>' +
+  '</svg>';
+
+function _navSetClosed() {
+  const links = document.getElementById('dash-nav-links');
+  const btn = document.getElementById('nav-toggle');
+  if (links) links.classList.remove('open');
+  document.body.classList.remove('nav-open');
+  if (btn) {
+    btn.setAttribute('aria-expanded', 'false');
+    btn.innerHTML = _NAV_TOGGLE_HAMBURGER_SVG;
+  }
+}
+function toggleMobileNav() {
+  const links = document.getElementById('dash-nav-links');
+  const btn = document.getElementById('nav-toggle');
+  if (!links) return;
+  const willOpen = !links.classList.contains('open');
+  links.classList.toggle('open', willOpen);
+  document.body.classList.toggle('nav-open', willOpen);
+  if (btn) {
+    btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+    btn.innerHTML = willOpen ? _NAV_TOGGLE_CLOSE_SVG : _NAV_TOGGLE_HAMBURGER_SVG;
+  }
+}
+// Close drawer when a link inside it is tapped, or when clicking outside the drawer + button.
+// We deliberately register at the DOCUMENT level (capture=false) so the click on the hamburger
+// button has already triggered toggleMobileNav before we run; if the click was inside the button
+// or inside the drawer itself we leave it open.
+document.addEventListener('click', function(e) {
+  const links = document.getElementById('dash-nav-links');
+  const btn = document.getElementById('nav-toggle');
+  if (!links || !links.classList.contains('open')) return;
+  const target = e.target;
+  // Click was on a nav link → close (the link will navigate)
+  if (target.closest && target.closest('#dash-nav-links a')) {
+    _navSetClosed();
+    return;
+  }
+  // Click was inside the drawer itself or the toggle button → keep open
+  if (links.contains(target) || (btn && btn.contains(target))) return;
+  // Anywhere else → close
+  _navSetClosed();
+});
+window.addEventListener('resize', function() {
+  if (window.innerWidth > 900) _navSetClosed();
+});
+window.toggleMobileNav = toggleMobileNav;
 
 async function signOut() {
   try { await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }); } catch(e) {}
