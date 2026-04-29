@@ -494,12 +494,19 @@ async def google_callback(
     code: str,
     state: Optional[str] = None,
 ):
-    """Handle Google OAuth callback. FIX-2: validate state."""
+    """Handle Google OAuth callback. FIX-2: validate state.
+    On expired/invalid state we redirect to /login with a query flag instead
+    of showing a raw JSON error — covers the common case where Google's
+    silent re-auth (?prompt=none) replays an older state from browser cache,
+    or the user took >30 minutes between clicking 'Sign in' and finishing.
+    The frontend can render a friendly 'please sign in again' notice.
+    """
+    _login_url = f"{FRONTEND_URL.rstrip('/')}/login"
     if not state:
-        raise HTTPException(400, "Missing OAuth state parameter")
+        return RedirectResponse(url=f"{_login_url}?oauth_error=missing_state", status_code=302)
     entry = validate_oauth_state(state)
     if not entry:
-        raise HTTPException(400, "Invalid or expired OAuth state Ã¢â‚¬â€ possible CSRF attempt")
+        return RedirectResponse(url=f"{_login_url}?oauth_error=expired_state", status_code=302)
 
     redirect_uri = f"{APP_URL}/api/auth/callback/google"
     user_info = await google_get_user_info(code, redirect_uri)

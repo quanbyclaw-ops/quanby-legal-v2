@@ -61,7 +61,10 @@ JWT_AUDIENCE   = "quanby-legal-api"
 # FIX-2: CSRF state + PKCE storage — state -> {"expiry": float, "code_verifier": str}
 # Persisted to disk with file locking so multiple uvicorn workers share state safely.
 _OAUTH_STATES_PATH = Path(__file__).parent / "data" / "oauth_states.json"
-_OAUTH_STATE_TTL = 600  # 10 minutes
+# 30 minutes — covers users who get distracted between clicking 'Sign in with
+# Google' and finishing the consent screen, plus Google's silent re-auth
+# (`prompt=none`) which can replay an older state from browser history.
+_OAUTH_STATE_TTL = 1800
 
 
 def _read_states_locked(f) -> dict:
