@@ -83,7 +83,132 @@
   .num-item:hover{background:rgba(255,255,255,0.05);color:#e8eaf2;}
   .num-signout{color:#f87171;}
   .num-signout:hover{background:rgba(239,68,68,0.08);color:#f87171;}
-  @media(max-width:768px){.nav-links{display:none;}}
+  /* Hamburger button (mobile only — see breakpoints below) */
+  .nav-toggle {
+    display: none;
+    background: none;
+    border: 1px solid rgba(255,255,255,0.12);
+    color: #e8eaf2;
+    width: 40px; height: 40px;
+    border-radius: 8px;
+    cursor: pointer;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .nav-toggle:hover { background: rgba(255,255,255,0.06); }
+  .nav-toggle:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+  /* ══ MOBILE BREAKPOINTS ══ */
+
+  /* ≤ 900px: nav collapses into hamburger drawer */
+  @media (max-width: 900px) {
+    .nav-content { padding: 0 1rem; gap: 0.75rem; }
+    .logo-text { font-size: 1rem; }
+    .nav-toggle { display: inline-flex; }
+
+    .nav-links {
+      position: fixed;
+      top: 64px;
+      left: 0; right: 0;
+      max-height: calc(100vh - 64px);
+      overflow-y: auto;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 0.25rem;
+      padding: 0.75rem 1rem 1.25rem;
+      background: rgba(5,6,15,0.98);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      box-shadow: 0 12px 32px rgba(0,0,0,0.5);
+      transform: translateY(-110%);
+      visibility: hidden;
+      transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1), visibility 0s linear 0.22s;
+      z-index: 99;
+      display: flex;
+    }
+    .nav-links.open {
+      transform: translateY(0);
+      visibility: visible;
+      transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1), visibility 0s;
+    }
+    .nav-links a {
+      width: 100%;
+      padding: 0.85rem 1rem;
+      font-size: 0.95rem;
+      border-radius: 8px;
+    }
+    body.nav-open { overflow: hidden; }
+    .nav-user-name { display: none; }
+  }
+
+  /* ≤ 768px: tablet */
+  @media (max-width: 768px) {
+    .container { padding: 1.5rem 1.25rem 3rem; }
+    .page-header h1 { font-size: 1.45rem; }
+    /* Tabs row: allow horizontal scroll instead of cramming/wrapping */
+    .tabs {
+      width: 100%;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      flex-wrap: nowrap;
+      scrollbar-width: none;
+    }
+    .tabs::-webkit-scrollbar { display: none; }
+    .tab { flex-shrink: 0; padding: 0.55rem 1rem; font-size: 0.85rem; }
+  }
+
+  /* ≤ 600px: large phone */
+  @media (max-width: 600px) {
+    .container { padding: 1.25rem 1rem 2.5rem; }
+    .page-header { margin-bottom: 1.25rem; }
+    .page-header h1 { font-size: 1.3rem; }
+    .apt-card { padding: 1.1rem 1.15rem; border-radius: 12px; }
+    .apt-card-header { gap: 0.5rem; }
+    .apt-card-title { font-size: 0.95rem; }
+    .apt-meta { gap: 0.4rem 1rem; font-size: 0.78rem; }
+    .apt-actions { gap: 0.5rem; }
+    .apt-actions > * { flex: 1 1 auto; min-height: 44px; justify-content: center; }
+    .signing-panel { padding: 0.85rem 1rem; }
+    .signing-panel-row { gap: 0.5rem; }
+    .signing-panel-row > * { flex: 1 1 auto; min-height: 44px; }
+  }
+
+  /* ≤ 480px: phone portrait */
+  @media (max-width: 480px) {
+    .container { padding: 1rem 0.875rem 2.25rem; }
+    .page-header h1 { font-size: 1.2rem; line-height: 1.25; }
+    .apt-card { padding: 1rem; border-radius: 12px; }
+    .apt-card-header {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.5rem;
+    }
+    .status-badge { align-self: flex-start; }
+    .apt-meta {
+      flex-direction: column;
+      gap: 0.35rem;
+      font-size: 0.78rem;
+    }
+    .apt-actions {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .apt-actions > * {
+      width: 100%;
+      justify-content: center;
+      min-height: 44px;
+      font-size: 0.85rem;
+    }
+    .btn-confirm, .btn-decline, .btn-sign, .btn-session-start,
+    .btn-session-join, .btn-sign-open {
+      padding: 0.65rem 1rem;
+    }
+    .signing-panel-row { flex-direction: column; align-items: stretch; }
+    .signing-panel-row > * { width: 100%; }
+  }
+
+  body { padding-bottom: env(safe-area-inset-bottom, 0); }
 
   .container{max-width:900px;margin:0 auto;padding:2rem 1.5rem;}
   .page-header{margin-bottom:1.5rem;}
@@ -158,6 +283,13 @@
     <div class="nav-links" id="nav-links">
       <!-- populated by JS -->
     </div>
+    <button class="nav-toggle" id="nav-toggle" aria-label="Open navigation menu" aria-expanded="false" aria-controls="nav-links" onclick="event.stopPropagation();toggleMobileNav()">
+      <svg id="nav-toggle-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <line x1="4" y1="7" x2="20" y2="7"/>
+        <line x1="4" y1="12" x2="20" y2="12"/>
+        <line x1="4" y1="17" x2="20" y2="17"/>
+      </svg>
+    </button>
     <div class="nav-user" id="nav-user-wrap" onclick="toggleMenu()">
       <img class="nav-user-avatar" id="nav-avatar" src="" alt="" style="display:none;">
       <div class="nav-user-initials" id="nav-initials" style="display:none;"></div>
@@ -668,6 +800,50 @@ document.addEventListener('click', function(e) {
   const wrap = document.getElementById('nav-user-wrap');
   if (wrap && !wrap.contains(e.target)) document.getElementById('user-menu').style.display = 'none';
 });
+
+// ── Mobile hamburger nav drawer ──
+const _NAV_TOGGLE_HAMBURGER_SVG =
+  '<svg id="nav-toggle-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+  '<line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>';
+const _NAV_TOGGLE_CLOSE_SVG =
+  '<svg id="nav-toggle-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+  '<line x1="6" y1="6" x2="18" y2="18"/><line x1="6" y1="18" x2="18" y2="6"/></svg>';
+
+function _navSetClosed() {
+  const links = document.getElementById('nav-links');
+  const btn = document.getElementById('nav-toggle');
+  if (links) links.classList.remove('open');
+  document.body.classList.remove('nav-open');
+  if (btn) {
+    btn.setAttribute('aria-expanded', 'false');
+    btn.innerHTML = _NAV_TOGGLE_HAMBURGER_SVG;
+  }
+}
+function toggleMobileNav() {
+  const links = document.getElementById('nav-links');
+  const btn = document.getElementById('nav-toggle');
+  if (!links) return;
+  const willOpen = !links.classList.contains('open');
+  links.classList.toggle('open', willOpen);
+  document.body.classList.toggle('nav-open', willOpen);
+  if (btn) {
+    btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+    btn.innerHTML = willOpen ? _NAV_TOGGLE_CLOSE_SVG : _NAV_TOGGLE_HAMBURGER_SVG;
+  }
+}
+document.addEventListener('click', function(e) {
+  const links = document.getElementById('nav-links');
+  const btn = document.getElementById('nav-toggle');
+  if (!links || !links.classList.contains('open')) return;
+  const target = e.target;
+  if (target.closest && target.closest('#nav-links a')) { _navSetClosed(); return; }
+  if (links.contains(target) || (btn && btn.contains(target))) return;
+  _navSetClosed();
+});
+window.addEventListener('resize', function() {
+  if (window.innerWidth > 900) _navSetClosed();
+});
+window.toggleMobileNav = toggleMobileNav;
 
 document.addEventListener('DOMContentLoaded', init);
 
